@@ -140,6 +140,16 @@ func (m *MemoryStore) Flush() error {
 	return nil
 }
 
+// Forever may be used to store an item in the cache permanently
+func (m *MemoryStore) Forever(key string, value any) error {
+	err := m.Put(key, value, 0)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // Forget removes the given key from the cache.
 //
 // If the key does not exist, the call has no effect.

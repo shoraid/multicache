@@ -412,6 +412,31 @@ func TestMemoryStore_Flush(t *testing.T) {
 	})
 }
 
+func TestMemoryStore_Forever(t *testing.T) {
+	baseTime := time.Date(2025, 8, 16, 0, 0, 0, 0, time.UTC)
+
+	store := &MemoryStore{
+		data:    make(map[string]memoryItem),
+		nowFunc: func() time.Time { return baseTime },
+	}
+
+	moveForward := func(d time.Duration) {
+		baseTime = baseTime.Add(d)
+	}
+
+	t.Run("should add a new cache forever", func(t *testing.T) {
+		key := "cache_forever"
+		expected := 123
+
+		store.Forever(key, expected)
+		moveForward(10 * 365 * 24 * time.Hour) // 10 years
+
+		actual, err := store.Get(key)
+		assert.NoError(t, err, "expected no error even after long duration")
+		assert.Equal(t, expected, actual, "expected value to never expire")
+	})
+}
+
 func TestMemoryStore_Forget(t *testing.T) {
 	baseTime := time.Date(2025, 8, 16, 0, 0, 0, 0, time.UTC)
 
@@ -788,6 +813,30 @@ func BenchmarkMemoryStore_Flush(b *testing.B) {
 
 	for b.Loop() {
 		store.Flush()
+	}
+}
+
+func BenchmarkMemoryStore_Forever(b *testing.B) {
+	baseTime := time.Date(2025, 8, 16, 0, 0, 0, 0, time.UTC)
+	store := &MemoryStore{
+		data:    make(map[string]memoryItem),
+		nowFunc: func() time.Time { return baseTime },
+	}
+
+	cases := []struct {
+		name  string
+		key   string
+		value any
+	}{
+		{"add new cache", "add_cache", 123},
+	}
+
+	for _, tt := range cases {
+		b.Run(tt.name, func(b *testing.B) {
+			for b.Loop() {
+				store.Put(tt.key, tt.value)
+			}
+		})
 	}
 }
 
