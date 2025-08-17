@@ -100,6 +100,31 @@ func (m *MemoryStore) now() time.Time {
 	return time.Now()
 }
 
+// Add inserts a key-value pair into the MemoryStore with an optional TTL.
+// Returns ErrItemAlreadyExists if the key exists and is not expired.
+// Overwrites the key if it is expired. Propagates errors from Has or Put.
+func (m *MemoryStore) Add(key string, value any, ttl ...time.Duration) error {
+	// Check if the key already exists in the store
+	exists, err := m.Has(key)
+	if err != nil {
+		return err
+	}
+
+	// If the key exists and is not expired, return ErrItemAlreadyExists
+	if exists {
+		return multicache.ErrItemAlreadyExists
+	}
+
+	// Key does not exist or is expired, so store the new value with optional TTL
+	err = m.Put(key, value, ttl...)
+	if err != nil {
+		return err
+	}
+
+	// Successfully added the key-value pair
+	return nil
+}
+
 // Flush clears all entries from the cache.
 //
 // This resets the internal storage by replacing it

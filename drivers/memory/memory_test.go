@@ -338,6 +338,46 @@ func TestMemoryStore_now(t *testing.T) {
 	})
 }
 
+func TestMemoryStore_Add(t *testing.T) {
+	baseTime := time.Date(2025, 8, 17, 0, 0, 0, 0, time.UTC)
+	store := &MemoryStore{
+		data:    make(map[string]memoryItem),
+		nowFunc: func() time.Time { return baseTime },
+	}
+
+	t.Run("should add new key successfully", func(t *testing.T) {
+		err := store.Add("new", 999)
+		assert.NoError(t, err, "expected no error when adding new key")
+
+		item, exists := store.data["new"]
+		assert.True(t, exists, "expected key to exist after Add")
+		assert.Equal(t, 999, item.value, "expected stored value for key 'new' to be 999")
+	})
+
+	t.Run("should return error when adding duplicate key", func(t *testing.T) {
+		store.data["exists"] = memoryItem{
+			value:      123,
+			expiration: baseTime.Add(1 * time.Hour),
+		}
+
+		err := store.Add("exists", 456)
+		assert.ErrorIs(t, err, multicache.ErrItemAlreadyExists)
+	})
+
+	t.Run("should add expired key as new", func(t *testing.T) {
+		store.data["expired"] = memoryItem{
+			value:      888,
+			expiration: baseTime.Add(-1 * time.Minute),
+		}
+		err := store.Add("expired", 777)
+		assert.NoError(t, err, "expected no error when adding expired key")
+
+		item, ok := store.data["expired"]
+		assert.True(t, ok, "expected key to exist after Add")
+		assert.Equal(t, 777, item.value, "expected stored value for key 'expired' to be 777")
+	})
+}
+
 func TestMemoryStore_Flush(t *testing.T) {
 	store := &MemoryStore{
 		data: make(map[string]memoryItem),
@@ -696,6 +736,43 @@ func BenchmarkMemoryStore_findExpiredKeys(b *testing.B) {
 
 	for b.Loop() {
 		_ = store.findExpiredKeys()
+	}
+}
+
+func BenchmarkMemoryStore_Add(b *testing.B) {
+	baseTime := time.Date(2025, 8, 17, 0, 0, 0, 0, time.UTC)
+
+	store := &MemoryStore{
+		data:    make(map[string]memoryItem),
+		nowFunc: func() time.Time { return baseTime },
+	}
+
+	// Prepopulate keys for testing duplicates and expired
+	store.data["exists"] = memoryItem{
+		value:      123,
+		expiration: baseTime.Add(1 * time.Hour),
+	}
+	store.data["expired"] = memoryItem{
+		value:      456,
+		expiration: baseTime.Add(-1 * time.Minute),
+	}
+
+	cases := []struct {
+		name  string
+		key   string
+		value any
+	}{
+		{"add new key", "new", 999},
+		{"add existing key", "exists", 111},
+		{"add expired key", "expired", 777},
+	}
+
+	for _, tt := range cases {
+		b.Run(tt.name, func(b *testing.B) {
+			for b.Loop() {
+				_ = store.Add(tt.key, tt.value)
+			}
+		})
 	}
 }
 
