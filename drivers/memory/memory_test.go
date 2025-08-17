@@ -505,6 +505,42 @@ func TestMemoryStore_Get(t *testing.T) {
 	})
 }
 
+func TestMemoryStore_Has(t *testing.T) {
+	baseTime := time.Date(2025, 8, 17, 0, 0, 0, 0, time.UTC)
+	store := &MemoryStore{
+		data:    make(map[string]memoryItem),
+		nowFunc: func() time.Time { return baseTime },
+	}
+
+	t.Run("should return false for missing key", func(t *testing.T) {
+		exists, err := store.Has("missing")
+		assert.NoError(t, err, "expected no error for missing key")
+		assert.False(t, exists, "expected missing key to return false")
+	})
+
+	t.Run("should return true for existing key", func(t *testing.T) {
+		store.data["exists"] = memoryItem{
+			value:      123,
+			expiration: baseTime.Add(1 * time.Hour),
+		}
+
+		exists, err := store.Has("exists")
+		assert.NoError(t, err, "expected no error for existing key")
+		assert.True(t, exists, "expected existing key to return true")
+	})
+
+	t.Run("should return false for expired key", func(t *testing.T) {
+		store.data["expired"] = memoryItem{
+			value:      456,
+			expiration: baseTime.Add(-1 * time.Minute),
+		}
+
+		exists, err := store.Has("expired")
+		assert.NoError(t, err, "expected no error for expired key")
+		assert.False(t, exists, "expected expired key to return false")
+	})
+}
+
 func TestMemoryStore_Put(t *testing.T) {
 	baseTime := time.Date(2025, 8, 16, 0, 0, 0, 0, time.UTC)
 
@@ -745,6 +781,42 @@ func BenchmarkMemoryStore_Get(b *testing.B) {
 	}
 }
 
+func BenchmarkMemoryStore_Has(b *testing.B) {
+	baseTime := time.Date(2025, 8, 17, 0, 0, 0, 0, time.UTC)
+
+	store := &MemoryStore{
+		data:    make(map[string]memoryItem),
+		nowFunc: func() time.Time { return baseTime },
+	}
+
+	store.data["valid"] = memoryItem{
+		value:      123,
+		expiration: baseTime.Add(1 * time.Hour), // valid
+	}
+	store.data["expired"] = memoryItem{
+		value:      456,
+		expiration: baseTime.Add(-1 * time.Hour), // expired
+	}
+
+	cases := []struct {
+		name string
+		key  string
+		want bool
+	}{
+		{"key exists", "valid", true},
+		{"key missing", "missing", false},
+		{"key expired", "expired", false},
+	}
+
+	for _, tt := range cases {
+		b.Run(tt.name, func(b *testing.B) {
+			for b.Loop() {
+				store.Has(tt.key)
+			}
+		})
+	}
+}
+
 func BenchmarkMemoryStore_Put(b *testing.B) {
 	baseTime := time.Date(2025, 8, 16, 0, 0, 0, 0, time.UTC)
 	store := &MemoryStore{
@@ -752,32 +824,24 @@ func BenchmarkMemoryStore_Put(b *testing.B) {
 		nowFunc: func() time.Time { return baseTime },
 	}
 
-	moveForward := func(d time.Duration) {
-		baseTime = baseTime.Add(d)
-	}
-
 	cases := []struct {
-		name    string
-		key     string
-		value   any
-		ttl     []time.Duration
-		advance time.Duration
+		name  string
+		key   string
+		value any
+		ttl   []time.Duration
 	}{
-		{"add new cache", "add_cache", 123, []time.Duration{1 * time.Hour}, 0},
-		{"overwrite existing cache", "overwrite", 100, []time.Duration{1 * time.Hour}, 0},
-		{"expire after duration", "with_duration", 123, []time.Duration{10 * time.Second}, 11 * time.Second},
-		{"cache forever with TTL 0", "forever_zero", "value-forever", []time.Duration{0}, 10 * 365 * 24 * time.Hour},
-		{"cache forever without TTL", "forever_none", "value-forever", nil, 10 * 365 * 24 * time.Hour},
-		{"delete with negative TTL", "negatif", 123, []time.Duration{-1}, 0},
+		{"add new cache", "add_cache", 123, []time.Duration{1 * time.Hour}},
+		{"overwrite existing cache", "overwrite", 100, []time.Duration{1 * time.Hour}},
+		{"expire after duration", "with_duration", 123, []time.Duration{10 * time.Second}},
+		{"cache forever with TTL 0", "forever_zero", "value-forever", []time.Duration{0}},
+		{"cache forever without TTL", "forever_none", "value-forever", nil},
+		{"delete with negative TTL", "negatif", 123, []time.Duration{-1}},
 	}
 
 	for _, tt := range cases {
 		b.Run(tt.name, func(b *testing.B) {
-			for i := 0; i < b.N; i++ {
+			for b.Loop() {
 				store.Put(tt.key, tt.value, tt.ttl...)
-				if tt.advance > 0 {
-					moveForward(tt.advance)
-				}
 			}
 		})
 	}

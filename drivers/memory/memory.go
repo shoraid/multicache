@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
@@ -99,12 +100,6 @@ func (m *MemoryStore) now() time.Time {
 	return time.Now()
 }
 
-// Stop signals the cleanup goroutine to stop running.
-// This prevents background goroutines from leaking when the store is no longer used.
-// func (m *MemoryStore) Stop() {
-// 	close(m.cancelCleanup)
-// }
-
 // Flush clears all entries from the cache.
 //
 // This resets the internal storage by replacing it
@@ -173,6 +168,24 @@ func (m *MemoryStore) Get(key string, fallback ...any) (any, error) {
 
 	// Key exists and is not expired
 	return item.value, nil
+}
+
+// Has returns true if the key exists in the cache, false if missing or expired.
+// Returns an error only if a non-cache-related issue occurs.
+func (m *MemoryStore) Has(key string) (bool, error) {
+	// Try to get the value for the given key
+	_, err := m.Get(key)
+	if err != nil {
+		// If the key is missing or expired, treat it as not existing
+		if errors.Is(err, multicache.ErrCacheMiss) {
+			return false, nil
+		}
+		// If any other error occurred, propagate it
+		return false, err
+	}
+
+	// Key exists and has a valid value
+	return true, nil
 }
 
 // Put stores a value in the cache with the given key.
