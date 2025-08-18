@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -18,7 +19,6 @@ func TestNewMemoryStore(t *testing.T) {
 
 		store, ok := storeInterface.(*MemoryStore)
 		assert.True(t, ok, "expected returned store to be of type *MemoryStore")
-		assert.NotNil(t, store.data, "expected store data map to be initialized")
 		assert.NotNil(t, store.cancelCleanup, "expected cancelCleanup function to be initialized")
 	})
 
@@ -51,13 +51,13 @@ func TestNewMemoryStore(t *testing.T) {
 		store := storeInterface.(*MemoryStore)
 
 		// Add expired key
-		store.data["expired"] = memoryItem{
+		store.data.Store("expired", memoryItem{
 			value:      1,
 			expiration: time.Now().Add(-1 * time.Second),
-		}
+		})
 
 		time.Sleep(20 * time.Millisecond) // wait for cleanup
-		_, exists := store.data["expired"]
+		_, exists := store.data.Load("expired")
 		assert.False(t, exists, "expected expired key to be deleted by cleanupExpiredKeys goroutine")
 
 		// Cancel cleanup goroutine
@@ -71,14 +71,23 @@ func TestNewMemoryStore(t *testing.T) {
 		s1 := store1.(*MemoryStore)
 		s2 := store2.(*MemoryStore)
 
-		s1.Put("key", 1)
-		s2.Put("key", 2)
+		s1.data.Store("key", memoryItem{
+			value:      1,
+			expiration: time.Now().Add(1 * time.Hour),
+		})
+		s2.data.Store("key", memoryItem{
+			value:      2,
+			expiration: time.Now().Add(1 * time.Hour),
+		})
 
-		v1, _ := s1.Get("key")
-		v2, _ := s2.Get("key")
+		item1, _ := s1.data.Load("key")
+		actual1, _ := item1.(memoryItem)
 
-		assert.Equal(t, 1, v1, "expected store1 to return its own value independently")
-		assert.Equal(t, 2, v2, "expected store2 to return its own value independently")
+		item2, _ := s2.data.Load("key")
+		actual2, _ := item2.(memoryItem)
+
+		assert.Equal(t, 1, actual1.value, "expected store1 to return its own value independently")
+		assert.Equal(t, 2, actual2.value, "expected store2 to return its own value independently")
 
 		s1.cancelCleanup()
 		s2.cancelCleanup()
@@ -86,14 +95,8 @@ func TestNewMemoryStore(t *testing.T) {
 }
 
 func TestMemoryStore_cleanupExpiredKeys(t *testing.T) {
-	baseTime := time.Date(2025, 8, 16, 0, 0, 0, 0, time.UTC)
 	store := &MemoryStore{
-		data:    make(map[string]memoryItem),
-		nowFunc: func() time.Time { return baseTime },
-	}
-
-	moveForward := func(d time.Duration) {
-		baseTime = baseTime.Add(d)
+		data: sync.Map{},
 	}
 
 	t.Run("should stop immediately when context is canceled", func(t *testing.T) {
@@ -117,270 +120,127 @@ func TestMemoryStore_cleanupExpiredKeys(t *testing.T) {
 
 	t.Run("should delete expired keys at intervals", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
-		store.data = map[string]memoryItem{
-			"key1": {value: 1, expiration: baseTime.Add(-1 * time.Minute)}, // expired
-			"key2": {value: 2, expiration: baseTime.Add(1 * time.Hour)},    // not expired
-		}
+
+		// setup keys
+		store.data = sync.Map{}
+		store.data.Store("key1", memoryItem{value: 1, expiration: time.Now().Add(-1 * time.Minute)}) // expired
+		store.data.Store("key2", memoryItem{value: 2, expiration: time.Now().Add(1 * time.Hour)})    // not expired
 
 		go store.cleanupExpiredKeys(ctx, 50*time.Millisecond)
 
 		time.Sleep(100 * time.Millisecond)
-		assert.NotContains(t, store.data, "key1", "expected expired key1 to be deleted during cleanup")
-		assert.Contains(t, store.data, "key2", "expected non-expired key2 to remain during cleanup")
+
+		// check key1 is deleted
+		_, ok1 := store.data.Load("key1")
+		assert.False(t, ok1, "expected expired key1 to be deleted during cleanup")
+
+		// check key2 still exists
+		_, ok2 := store.data.Load("key2")
+		assert.True(t, ok2, "expected non-expired key2 to remain during cleanup")
 
 		cancel()
 	})
 
 	t.Run("should handle store with no expired keys", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
-		store.data = map[string]memoryItem{
-			"key1": {value: 1, expiration: baseTime.Add(1 * time.Minute)},
-			"key2": {value: 2, expiration: baseTime.Add(2 * time.Minute)},
-		}
+
+		// setup keys
+		store.data = sync.Map{}
+		store.data.Store("key1", memoryItem{value: 1, expiration: time.Now().Add(1 * time.Minute)})
+		store.data.Store("key2", memoryItem{value: 2, expiration: time.Now().Add(2 * time.Minute)})
 
 		go store.cleanupExpiredKeys(ctx, 50*time.Millisecond)
 		time.Sleep(100 * time.Millisecond)
 
-		assert.Len(t, store.data, 2, "expected all keys to remain because none are expired")
+		// count keys
+		count := 0
+		store.data.Range(func(_, _ any) bool {
+			count++
+			return true
+		})
+
+		assert.Equal(t, 2, count, "expected all keys to remain because none are expired")
 		cancel()
 	})
+}
 
-	t.Run("should delete keys that expire after time moves forward", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		store.data = map[string]memoryItem{
-			"key1": {value: 1, expiration: baseTime.Add(1 * time.Minute)},
-			"key2": {value: 2, expiration: baseTime.Add(2 * time.Minute)},
-		}
-
-		go store.cleanupExpiredKeys(ctx, 50*time.Millisecond)
-
-		moveForward(90 * time.Second) // 1.5 minutes
-		time.Sleep(100 * time.Millisecond)
-
-		assert.NotContains(t, store.data, "key1", "expected key1 to be deleted after expiration")
-		assert.Contains(t, store.data, "key2", "expected key2 to remain until it expires")
-
-		cancel()
+func collectKeys(m *sync.Map) []string {
+	keys := []string{}
+	m.Range(func(k, _ any) bool {
+		keys = append(keys, k.(string))
+		return true
 	})
+	return keys
 }
 
 func TestMemoryStore_deleteExpiredKeys(t *testing.T) {
-	baseTime := time.Date(2025, 8, 16, 0, 0, 0, 0, time.UTC)
-	store := &MemoryStore{
-		data:    make(map[string]memoryItem),
-		nowFunc: func() time.Time { return baseTime },
-	}
 
-	moveForward := func(d time.Duration) {
-		baseTime = baseTime.Add(d)
+	store := &MemoryStore{
+		data: sync.Map{},
 	}
 
 	t.Run("should do nothing when store is empty", func(t *testing.T) {
-		store.data = map[string]memoryItem{}
+		store.data = sync.Map{} // reset
 
 		store.deleteExpiredKeys()
-		assert.Empty(t, store.data, "expected store to remain empty when no keys exist")
+
+		count := 0
+		store.data.Range(func(_, _ any) bool {
+			count++
+			return true
+		})
+		assert.Equal(t, 0, count, "expected store to remain empty when no keys exist")
 	})
 
 	t.Run("should keep all keys when none are expired", func(t *testing.T) {
-		store.data = map[string]memoryItem{
-			"key1": {value: 1, expiration: baseTime.Add(1 * time.Hour)},
-			"key2": {value: 2, expiration: baseTime.Add(10 * time.Minute)},
-		}
+		store.data = sync.Map{}
+		store.data.Store("key1", memoryItem{value: 1, expiration: time.Now().Add(1 * time.Hour)})
+		store.data.Store("key2", memoryItem{value: 2, expiration: time.Now().Add(10 * time.Minute)})
 
 		store.deleteExpiredKeys()
-		assert.Len(t, store.data, 2, "expected all keys to remain because none expired")
+
+		keys := collectKeys(&store.data)
+		assert.ElementsMatch(t, []string{"key1", "key2"}, keys, "expected all keys to remain because none expired")
 	})
 
 	t.Run("should delete all keys when all are expired", func(t *testing.T) {
-		store.data = map[string]memoryItem{
-			"key1": {value: 1, expiration: baseTime.Add(-1 * time.Hour)},
-			"key2": {value: 2, expiration: baseTime.Add(-10 * time.Minute)},
-		}
+		store.data = sync.Map{}
+		store.data.Store("key1", memoryItem{value: 1, expiration: time.Now().Add(-1 * time.Hour)})
+		store.data.Store("key2", memoryItem{value: 2, expiration: time.Now().Add(-10 * time.Minute)})
 
 		store.deleteExpiredKeys()
-		assert.Empty(t, store.data, "expected all expired keys to be deleted")
+
+		keys := collectKeys(&store.data)
+		assert.Empty(t, keys, "expected all expired keys to be deleted")
 	})
 
 	t.Run("should delete only expired keys when some are expired", func(t *testing.T) {
-		store.data = map[string]memoryItem{
-			"key1": {value: 1, expiration: baseTime.Add(-1 * time.Hour)},
-			"key2": {value: 2, expiration: baseTime.Add(10 * time.Minute)},
-			"key3": {value: 3, expiration: baseTime.Add(-5 * time.Minute)},
-		}
+		store.data = sync.Map{}
+		store.data.Store("key1", memoryItem{value: 1, expiration: time.Now().Add(-1 * time.Hour)})
+		store.data.Store("key2", memoryItem{value: 2, expiration: time.Now().Add(10 * time.Minute)})
+		store.data.Store("key3", memoryItem{value: 3, expiration: time.Now().Add(-5 * time.Minute)})
 
 		store.deleteExpiredKeys()
-		assert.Len(t, store.data, 1, "expected only non-expired keys to remain")
-		assert.Contains(t, store.data, "key2", "expected key2 to remain because it is not expired")
+
+		keys := collectKeys(&store.data)
+		assert.Equal(t, []string{"key2"}, keys, "expected only non-expired keys to remain")
 	})
 
 	t.Run("should keep keys with zero expiration", func(t *testing.T) {
-		store.data = map[string]memoryItem{
-			"key1": {value: 1, expiration: time.Time{}}, // zero means never expire
-			"key2": {value: 2, expiration: baseTime.Add(-1 * time.Minute)},
-		}
+		store.data = sync.Map{}
+		store.data.Store("key1", memoryItem{value: 1, expiration: time.Time{}}) // zero means never expire
+		store.data.Store("key2", memoryItem{value: 2, expiration: time.Now().Add(-1 * time.Minute)})
 
 		store.deleteExpiredKeys()
-		assert.Len(t, store.data, 1, "expected only zero-expiration keys to remain")
-		assert.Contains(t, store.data, "key1", "expected key1 with zero expiration to remain")
-	})
 
-	t.Run("should delete keys that expire after time moves forward", func(t *testing.T) {
-		store.data = map[string]memoryItem{
-			"key1": {value: 1, expiration: baseTime.Add(1 * time.Minute)},
-			"key2": {value: 2, expiration: baseTime.Add(2 * time.Minute)},
-		}
-
-		moveForward(90 * time.Second) // 1.5 minutes
-
-		store.deleteExpiredKeys()
-		assert.Len(t, store.data, 1, "expected only non-expired keys to remain after time move")
-		assert.Contains(t, store.data, "key2", "expected key2 to remain because it is not expired")
-		assert.NotContains(t, store.data, "key1", "expected key1 to be deleted because it expired")
+		keys := collectKeys(&store.data)
+		assert.Equal(t, []string{"key1"}, keys, "expected only zero-expiration keys to remain")
 	})
 }
 
-func TestMemoryStore_findExpiredKeys(t *testing.T) {
-	baseTime := time.Date(2025, 8, 16, 0, 0, 0, 0, time.UTC)
+func TestMemoryStore_Clear(t *testing.T) {
 	store := &MemoryStore{
-		data:    make(map[string]memoryItem),
-		nowFunc: func() time.Time { return baseTime },
-	}
-
-	moveForward := func(d time.Duration) {
-		baseTime = baseTime.Add(d)
-	}
-
-	t.Run("should return no keys when store is empty", func(t *testing.T) {
-		keys := store.findExpiredKeys()
-		assert.Empty(t, keys, "expected no expired keys when store is empty")
-	})
-
-	t.Run("should return no keys when all keys are non-expired", func(t *testing.T) {
-		store.data = map[string]memoryItem{
-			"key1": {value: 1, expiration: baseTime.Add(1 * time.Hour)},
-			"key2": {value: 2, expiration: baseTime.Add(10 * time.Minute)},
-		}
-
-		keys := store.findExpiredKeys()
-		assert.Empty(t, keys, "expected no expired keys when all keys are valid")
-	})
-
-	t.Run("should return all keys when all keys are expired", func(t *testing.T) {
-		store.data = map[string]memoryItem{
-			"key1": {value: 1, expiration: baseTime.Add(-1 * time.Hour)},
-			"key2": {value: 2, expiration: baseTime.Add(-10 * time.Minute)},
-		}
-
-		keys := store.findExpiredKeys()
-		assert.ElementsMatch(t, []string{"key1", "key2"}, keys, "expected all keys to be expired")
-	})
-
-	t.Run("should return only expired keys when some keys are expired", func(t *testing.T) {
-		store.data = map[string]memoryItem{
-			"key1": {value: 1, expiration: baseTime.Add(-1 * time.Hour)},
-			"key2": {value: 2, expiration: baseTime.Add(10 * time.Minute)},
-			"key3": {value: 3, expiration: baseTime.Add(-5 * time.Minute)},
-		}
-
-		keys := store.findExpiredKeys()
-		assert.ElementsMatch(t, []string{"key1", "key3"}, keys, "expected only expired keys to be returned")
-	})
-
-	t.Run("should ignore keys with zero expiration", func(t *testing.T) {
-		store.data = map[string]memoryItem{
-			"key1": {value: 1, expiration: time.Time{}}, // zero means never expire
-			"key2": {value: 2, expiration: baseTime.Add(-1 * time.Minute)},
-		}
-
-		keys := store.findExpiredKeys()
-		assert.ElementsMatch(t, []string{"key2"}, keys, "expected zero-expiration keys to never be considered expired")
-	})
-
-	t.Run("should return keys that expire after time moves forward", func(t *testing.T) {
-		store.data = map[string]memoryItem{
-			"key1": {value: 1, expiration: baseTime.Add(1 * time.Minute)},
-			"key2": {value: 2, expiration: baseTime.Add(2 * time.Minute)},
-		}
-
-		moveForward(90 * time.Second) // 1.5 minutes
-
-		keys := store.findExpiredKeys()
-		assert.ElementsMatch(t, []string{"key1"}, keys, "expected only key1 to be expired after time moved forward")
-	})
-}
-
-func TestMemoryStore_now(t *testing.T) {
-	t.Run("should return custom time when nowFunc is set", func(t *testing.T) {
-		expected := time.Date(2025, 8, 16, 12, 0, 0, 0, time.UTC)
-		store := &MemoryStore{
-			nowFunc: func() time.Time {
-				return expected
-			},
-		}
-
-		actual := store.now()
-		assert.Equal(t, expected, actual, "expected now() to return the value from nowFunc")
-	})
-
-	t.Run("should return current time when nowFunc is nil", func(t *testing.T) {
-		store := &MemoryStore{
-			nowFunc: nil,
-		}
-
-		before := time.Now()
-		actual := store.now()
-		after := time.Now()
-
-		// Check actual is between before and after
-		assert.True(t, actual.Equal(before) || actual.After(before), "expected now() to be after or equal to before time")
-		assert.True(t, actual.Equal(after) || actual.Before(after), "expected now() to be before or equal to after time")
-	})
-}
-
-func TestMemoryStore_Add(t *testing.T) {
-	baseTime := time.Date(2025, 8, 17, 0, 0, 0, 0, time.UTC)
-	store := &MemoryStore{
-		data:    make(map[string]memoryItem),
-		nowFunc: func() time.Time { return baseTime },
-	}
-
-	t.Run("should add new key successfully", func(t *testing.T) {
-		err := store.Add("new", 999)
-		assert.NoError(t, err, "expected no error when adding new key")
-
-		item, exists := store.data["new"]
-		assert.True(t, exists, "expected key to exist after Add")
-		assert.Equal(t, 999, item.value, "expected stored value for key 'new' to be 999")
-	})
-
-	t.Run("should return error when adding duplicate key", func(t *testing.T) {
-		store.data["exists"] = memoryItem{
-			value:      123,
-			expiration: baseTime.Add(1 * time.Hour),
-		}
-
-		err := store.Add("exists", 456)
-		assert.ErrorIs(t, err, multicache.ErrItemAlreadyExists)
-	})
-
-	t.Run("should add expired key as new", func(t *testing.T) {
-		store.data["expired"] = memoryItem{
-			value:      888,
-			expiration: baseTime.Add(-1 * time.Minute),
-		}
-		err := store.Add("expired", 777)
-		assert.NoError(t, err, "expected no error when adding expired key")
-
-		item, ok := store.data["expired"]
-		assert.True(t, ok, "expected key to exist after Add")
-		assert.Equal(t, 777, item.value, "expected stored value for key 'expired' to be 777")
-	})
-}
-
-func TestMemoryStore_Flush(t *testing.T) {
-	store := &MemoryStore{
-		data: make(map[string]memoryItem),
+		data: sync.Map{},
 	}
 
 	t.Run("should delete all caches", func(t *testing.T) {
@@ -389,330 +249,413 @@ func TestMemoryStore_Flush(t *testing.T) {
 		expected1 := 1
 		expected2 := 2
 
-		store.Put(key1, expected1)
-		store.Put(key2, expected2)
+		store.data.Store(key1, memoryItem{
+			value:      expected1,
+			expiration: time.Now().Add(1 * time.Hour),
+		})
+		store.data.Store(key2, memoryItem{
+			value:      expected2,
+			expiration: time.Now().Add(1 * time.Hour),
+		})
 
-		actual1, err := store.Get(key1)
-		assert.NoError(t, err, "expected no error before deletion")
-		assert.Equal(t, expected1, actual1, "expected value before deletion")
+		item1, _ := store.data.Load(key1)
+		actual1, _ := item1.(memoryItem)
+		assert.Equal(t, expected1, actual1.value, "expected value before deletion")
 
-		actual2, err := store.Get(key2)
-		assert.NoError(t, err, "expected no error before deletion")
-		assert.Equal(t, expected2, actual2, "expected value before deletion")
+		item2, _ := store.data.Load(key2)
+		actual2, _ := item2.(memoryItem)
+		assert.Equal(t, expected2, actual2.value, "expected value before deletion")
 
-		store.Flush()
+		err := store.Clear()
+		assert.NoError(t, err, "expected no error when clear all items")
 
-		actual1, err = store.Get(key1)
-		assert.ErrorIs(t, err, multicache.ErrCacheMiss, "expected cache miss error after deletion")
-		assert.Nil(t, actual1, "expected nil value after deletion")
+		item1, _ = store.data.Load(key1)
+		actual1, _ = item1.(memoryItem)
+		assert.Nil(t, actual1.value, "expected nil value after deletion")
 
-		actual2, err = store.Get(key2)
-		assert.ErrorIs(t, err, multicache.ErrCacheMiss, "expected cache miss error after deletion")
-		assert.Nil(t, actual2, "expected nil value after deletion")
+		item2, _ = store.data.Load(key2)
+		actual2, _ = item2.(memoryItem)
+		assert.Nil(t, actual2.value, "expected nil value after deletion")
 	})
 }
 
-func TestMemoryStore_Forever(t *testing.T) {
-	baseTime := time.Date(2025, 8, 16, 0, 0, 0, 0, time.UTC)
-
+func TestMemoryStore_Delete(t *testing.T) {
 	store := &MemoryStore{
-		data:    make(map[string]memoryItem),
-		nowFunc: func() time.Time { return baseTime },
-	}
-
-	moveForward := func(d time.Duration) {
-		baseTime = baseTime.Add(d)
-	}
-
-	t.Run("should add a new cache forever", func(t *testing.T) {
-		key := "cache_forever"
-		expected := 123
-
-		store.Forever(key, expected)
-		moveForward(10 * 365 * 24 * time.Hour) // 10 years
-
-		actual, err := store.Get(key)
-		assert.NoError(t, err, "expected no error even after long duration")
-		assert.Equal(t, expected, actual, "expected value to never expire")
-	})
-}
-
-func TestMemoryStore_Forget(t *testing.T) {
-	baseTime := time.Date(2025, 8, 16, 0, 0, 0, 0, time.UTC)
-
-	store := &MemoryStore{
-		data:    make(map[string]memoryItem),
-		nowFunc: func() time.Time { return baseTime },
+		data: sync.Map{},
 	}
 
 	t.Run("should delete cache", func(t *testing.T) {
 		key := "delete_cache"
 		expected := 123
+		store.data.Store(key, memoryItem{
+			value:      expected,
+			expiration: time.Now().Add(1 * time.Hour),
+		})
 
-		store.Put(key, expected)
+		item, _ := store.data.Load(key)
+		actual, _ := item.(memoryItem)
+		assert.Equal(t, expected, actual.value, "expected value before deletion")
 
-		actual, err := store.Get(key)
-		assert.NoError(t, err, "expected no error before deletion")
-		assert.Equal(t, expected, actual, "expected value before deletion")
+		err := store.Delete(key)
+		assert.NoError(t, err, "expected no error when deleting")
 
-		store.Forget(key)
+		item, _ = store.data.Load(key)
+		actual, _ = item.(memoryItem)
+		assert.Nil(t, actual.value, "expected nil value after deletion")
+	})
+}
 
-		actual, err = store.Get(key)
-		assert.ErrorIs(t, err, multicache.ErrCacheMiss, "expected cache miss error after deletion")
-		assert.Nil(t, actual, "expected nil value after deletion")
+func TestMemoryStore_DeleteByPattern(t *testing.T) {
+	store := &MemoryStore{
+		data: sync.Map{},
+	}
+
+	// Setup initial data
+	store.data.Store("auth:tenant:1:user:123:access_token:456", memoryItem{
+		value:      "token1",
+		expiration: time.Time{},
+	})
+	store.data.Store("auth:tenant:2:user:123:access_token:789", memoryItem{
+		value:      "token2",
+		expiration: time.Time{},
+	})
+	store.data.Store("user_permissions:tenant:123:user:456", memoryItem{
+		value:      "perm1",
+		expiration: time.Time{},
+	})
+	store.data.Store("user_products:user:123:products:1:item:123", memoryItem{
+		value:      "prod1",
+		expiration: time.Time{},
+	})
+	store.data.Store("other_key", memoryItem{
+		value:      "other",
+		expiration: time.Time{},
+	})
+
+	t.Run("should delete keys matching single wildcard pattern", func(t *testing.T) {
+		err := store.DeleteByPattern("auth:tenant:*:user:123:access_token:*")
+		assert.NoError(t, err, "expected no error deleting by pattern")
+
+		// Keys with tenant:1 and tenant:2 should be deleted
+		item1, _ := store.data.Load("auth:tenant:1:user:123:access_token:456")
+		actual1, _ := item1.(memoryItem)
+
+		item2, _ := store.data.Load("auth:tenant:2:user:123:access_token:789")
+		actual2, _ := item2.(memoryItem)
+
+		assert.Nil(t, actual1.value, "expected deleted key to be missing")
+		assert.Nil(t, actual2.value, "expected deleted key to be missing")
+	})
+
+	t.Run("should not delete keys if no match", func(t *testing.T) {
+		err := store.DeleteByPattern("not:matching:*")
+		assert.NoError(t, err, "expected no error when no keys match")
+
+		// "user_permissions..." should still exist
+		item, _ := store.data.Load("user_permissions:tenant:123:user:456")
+		actual, _ := item.(memoryItem)
+
+		assert.Equal(t, "perm1", actual.value)
+	})
+
+	t.Run("should delete keys matching multiple wildcards", func(t *testing.T) {
+		err := store.DeleteByPattern("user_products:user:123:products:*:item:123")
+		assert.NoError(t, err, "expected no error deleting with multiple wildcards")
+
+		item, _ := store.data.Load("user_products:user:123:products:1:item:123")
+		actual, _ := item.(memoryItem)
+
+		assert.Nil(t, actual.value, "expected key to be deleted")
+	})
+
+	t.Run("should delete keys with exact match pattern", func(t *testing.T) {
+		err := store.DeleteByPattern("user_permissions:tenant:123:user:456")
+		assert.NoError(t, err, "expected no error deleting with exact match")
+
+		item, _ := store.data.Load("user_permissions:tenant:123:user:456")
+		actual, _ := item.(memoryItem)
+
+		assert.Nil(t, actual.value, "expected exact matched key deleted")
+	})
+
+	t.Run("should not delete unrelated keys", func(t *testing.T) {
+		item, _ := store.data.Load("other_key")
+		actual, _ := item.(memoryItem)
+
+		assert.Equal(t, "other", actual.value)
+	})
+}
+
+func TestMemoryStore_DeleteMany(t *testing.T) {
+	store := &MemoryStore{
+		data: sync.Map{},
+	}
+
+	// Setup initial data
+	store.data.Store("key1", memoryItem{
+		value:      "value1",
+		expiration: time.Time{},
+	})
+	store.data.Store("key2", memoryItem{
+		value:      "value2",
+		expiration: time.Time{},
+	})
+	store.data.Store("key3", memoryItem{
+		value:      "value3",
+		expiration: time.Time{},
+	})
+
+	t.Run("should delete existing keys", func(t *testing.T) {
+		err := store.DeleteMany("key1", "key2")
+		assert.NoError(t, err, "expected no error when deleting existing keys")
+
+		item1, _ := store.data.Load("key1")
+		actual1, _ := item1.(memoryItem)
+		assert.Nil(t, actual1.value, "expected key1 to be deleted")
+
+		item2, _ := store.data.Load("key2")
+		actual2, _ := item2.(memoryItem)
+		assert.Nil(t, actual2.value, "expected key2 to be deleted")
+
+		item3, _ := store.data.Load("key3")
+		actual3, _ := item3.(memoryItem)
+		assert.NotNil(t, actual3.value, "expected key3 to remain")
+	})
+
+	t.Run("should handle non-existing key gracefully", func(t *testing.T) {
+		err := store.DeleteMany("missing")
+		assert.NoError(t, err, "expected no error when deleting non-existing key")
+
+		item3, _ := store.data.Load("key3")
+		actual3, _ := item3.(memoryItem)
+		assert.NotNil(t, actual3.value, "expected key3 to remain")
+	})
+
+	t.Run("should delete mix of existing and missing keys", func(t *testing.T) {
+		err := store.DeleteMany("key3", "missing")
+		assert.NoError(t, err, "expected no error when deleting mix of keys")
+
+		item3, _ := store.data.Load("key3")
+		actual3, _ := item3.(memoryItem)
+		assert.Nil(t, actual3.value, "expected key3 to be deleted")
+	})
+
+	t.Run("should handle empty input without error", func(t *testing.T) {
+		err := store.DeleteMany()
+		assert.NoError(t, err, "expected no error when deleting with empty input")
 	})
 }
 
 func TestMemoryStore_Get(t *testing.T) {
-	baseTime := time.Date(2025, 8, 16, 0, 0, 0, 0, time.UTC)
-
 	store := &MemoryStore{
-		data:    make(map[string]memoryItem),
-		nowFunc: func() time.Time { return baseTime },
+		data: sync.Map{},
 	}
 
-	moveForward := func(d time.Duration) {
-		baseTime = baseTime.Add(d)
-	}
+	t.Run("should return value for non-expired key", func(t *testing.T) {
+		key := "shortlived"
+		expected := 123
+		store.data.Store(key, memoryItem{
+			value:      expected,
+			expiration: time.Now().Add(10 * time.Second),
+		})
+
+		actual, err := store.Get(key)
+
+		assert.NoError(t, err, "expected no error for non-expired key")
+		assert.Equal(t, expected, actual, "expected value for key that has not expired")
+	})
 
 	t.Run("should return error cache miss for non-existing key", func(t *testing.T) {
 		key := "not_exists"
 
 		actual, err := store.Get(key)
+
 		assert.ErrorIs(t, err, multicache.ErrCacheMiss, "expected cache miss error for non-existing key")
 		assert.Nil(t, actual, "expected nil value for non-existing key")
-	})
-
-	t.Run("should return fallback value for non-existing key", func(t *testing.T) {
-		key := "non_existing_key"
-		fallback := "fallback_value"
-
-		actual, err := store.Get(key, fallback)
-		assert.NoError(t, err, "expected no error when fallback value is provided")
-		assert.Equal(t, fallback, actual, "expected fallback value when provided")
-	})
-
-	t.Run("should return value from fallback function for non-existing key", func(t *testing.T) {
-		key := "non_existing_key_func"
-
-		fallbackFunc := func() any {
-			return "value_from_func"
-		}
-
-		actual, err := store.Get(key, fallbackFunc())
-		assert.NoError(t, err, "expected no error when fallback function is provided")
-		assert.Equal(t, "value_from_func", actual, "expected value returned from fallback function")
-	})
-
-	t.Run("should return fallback value for expired key", func(t *testing.T) {
-		key := "expired_key"
-		storedValue := 123
-		fallback := 100
-
-		store.Put(key, storedValue, 10*time.Minute)
-		moveForward(11 * time.Minute) // key is now expired
-
-		actual, err := store.Get(key, fallback)
-		assert.NoError(t, err, "expected no error when fallback value is provided")
-		assert.NotEqual(t, storedValue, actual, "expected expired value not to be returned")
-		assert.Equal(t, fallback, actual, "expected fallback value when provided")
-	})
-
-	t.Run("should return value from fallback function for expired key", func(t *testing.T) {
-		key := "expired_key_func"
-		storedValue := 123
-		fallbackFunc := func() any {
-			return "value_from_func"
-		}
-
-		store.Put(key, storedValue, 10*time.Minute)
-		moveForward(11 * time.Minute) // key is now expired
-
-		actual, err := store.Get(key, fallbackFunc())
-		assert.NoError(t, err, "expected no error when fallback function is provided for expired key")
-		assert.NotEqual(t, storedValue, actual, "expected expired value not to be returned")
-		assert.Equal(t, "value_from_func", actual, "expected value returned from fallback function for expired key")
-	})
-
-	t.Run("should return value for cache forever key even after long time", func(t *testing.T) {
-		key := "forever"
-		expected := "value_forever"
-
-		store.Put(key, expected, 0)
-		moveForward(10 * 365 * 24 * time.Hour) // 10 years
-
-		actual, err := store.Get(key)
-		assert.NoError(t, err, "expected no error even after long time")
-		assert.Equal(t, expected, actual, "expected value for key with TTL 0 even after long time")
-	})
-
-	t.Run("should return value for non-expired key", func(t *testing.T) {
-		key := "shortlived"
-		expected := 123
-
-		store.Put(key, expected, 10*time.Second)
-
-		actual, err := store.Get(key)
-		assert.NoError(t, err, "expected no error for non-expired key")
-		assert.Equal(t, expected, actual, "expected value for key that has not expired")
 	})
 
 	t.Run("should return error cache miss for expired key", func(t *testing.T) {
 		key := "expired"
 		expected := 123
-
-		store.Put(key, expected, 10*time.Minute)
-		moveForward(11 * time.Minute)
+		store.data.Store(key, memoryItem{
+			value:      expected,
+			expiration: time.Now().Add(-10 * time.Minute),
+		})
 
 		actual, err := store.Get(key)
+
 		assert.ErrorIs(t, err, multicache.ErrCacheMiss, "expected cache miss error for expired key")
 		assert.Nil(t, actual, "expected nil value for expired key")
 	})
 }
 
-func TestMemoryStore_Has(t *testing.T) {
-	baseTime := time.Date(2025, 8, 17, 0, 0, 0, 0, time.UTC)
+func TestMemoryStore_GetOrSet(t *testing.T) {
 	store := &MemoryStore{
-		data:    make(map[string]memoryItem),
-		nowFunc: func() time.Time { return baseTime },
+		data: sync.Map{},
+	}
+
+	t.Run("should return existing value when key is present and not expired", func(t *testing.T) {
+		key := "exists"
+		expected := "cached_value"
+		store.data.Store(key, memoryItem{
+			value:      expected,
+			expiration: time.Now().Add(5 * time.Minute),
+		})
+
+		actual, err := store.GetOrSet(key, 1*time.Minute, "new_value")
+
+		assert.NoError(t, err, "expected no error when key exists")
+		assert.Equal(t, expected, actual, "expected existing value to be returned, not the new one")
+	})
+
+	t.Run("should set and return new value when key is missing", func(t *testing.T) {
+		key := "missing"
+		expected := "new_value"
+
+		actual, err := store.GetOrSet(key, 1*time.Minute, expected)
+
+		assert.NoError(t, err, "expected no error when setting a new value")
+		assert.Equal(t, expected, actual, "expected new value to be returned when key is missing")
+
+		// ensure it was stored
+		item, _ := store.data.Load(key)
+		stored, _ := item.(memoryItem)
+		assert.Equal(t, expected, stored.value, "expected new value to be stored")
+	})
+
+	t.Run("should set and return new value when key is expired", func(t *testing.T) {
+		key := "expired"
+		expected := "new_value"
+		store.data.Store(key, memoryItem{
+			value:      "old_value",
+			expiration: time.Now().Add(-1 * time.Minute), // expired
+		})
+
+		actual, err := store.GetOrSet(key, 1*time.Minute, expected)
+
+		assert.NoError(t, err, "expected no error when replacing expired value")
+		assert.Equal(t, expected, actual, "expected new value to be returned after expiration")
+
+		// ensure old value was replaced
+		item, _ := store.data.Load(key)
+		stored, _ := item.(memoryItem)
+
+		assert.Equal(t, expected, stored.value, "expected expired value to be replaced with new one")
+	})
+
+	t.Run("should return error if Set fails", func(t *testing.T) {
+		key := "invalid"
+		invalidTTL := -5 * time.Minute
+		expected := "value"
+
+		actual, err := store.GetOrSet(key, invalidTTL, expected)
+
+		assert.ErrorIs(t, err, multicache.ErrInvalidValue, "expected invalid TTL error")
+		assert.Nil(t, actual, "expected no value returned on Set error")
+	})
+}
+
+func TestMemoryStore_Has(t *testing.T) {
+	store := &MemoryStore{
+		data: sync.Map{},
 	}
 
 	t.Run("should return false for missing key", func(t *testing.T) {
 		exists, err := store.Has("missing")
+
 		assert.NoError(t, err, "expected no error for missing key")
 		assert.False(t, exists, "expected missing key to return false")
 	})
 
 	t.Run("should return true for existing key", func(t *testing.T) {
-		store.data["exists"] = memoryItem{
+		store.data.Store("exists", memoryItem{
 			value:      123,
-			expiration: baseTime.Add(1 * time.Hour),
-		}
+			expiration: time.Now().Add(1 * time.Hour),
+		})
 
 		exists, err := store.Has("exists")
+
 		assert.NoError(t, err, "expected no error for existing key")
 		assert.True(t, exists, "expected existing key to return true")
 	})
 
 	t.Run("should return false for expired key", func(t *testing.T) {
-		store.data["expired"] = memoryItem{
+		store.data.Store("expired", memoryItem{
 			value:      456,
-			expiration: baseTime.Add(-1 * time.Minute),
-		}
+			expiration: time.Now().Add(-1 * time.Minute),
+		})
 
 		exists, err := store.Has("expired")
+
 		assert.NoError(t, err, "expected no error for expired key")
 		assert.False(t, exists, "expected expired key to return false")
 	})
 }
 
-func TestMemoryStore_Put(t *testing.T) {
-	baseTime := time.Date(2025, 8, 16, 0, 0, 0, 0, time.UTC)
-
+func TestMemoryStore_Set(t *testing.T) {
 	store := &MemoryStore{
-		data:    make(map[string]memoryItem),
-		nowFunc: func() time.Time { return baseTime },
-	}
-
-	moveForward := func(d time.Duration) {
-		baseTime = baseTime.Add(d)
+		data: sync.Map{},
 	}
 
 	t.Run("should add a new cache item", func(t *testing.T) {
 		key := "add_cache"
 		expected := 123
 
-		store.Put(key, expected, 1*time.Hour)
+		err := store.Set(key, expected, 1*time.Hour)
+		assert.NoError(t, err, "expected no error when storing value")
 
-		actual, err := store.Get(key)
+		item, _ := store.data.Load(key)
+		actual, _ := item.(memoryItem)
 		assert.NoError(t, err, "expected no error when retrieving stored value")
-		assert.Equal(t, expected, actual, "expected stored value to be returned")
+		assert.Equal(t, expected, actual.value, "expected stored value to be returned")
 	})
 
 	t.Run("should overwrite an existing cache item", func(t *testing.T) {
 		key := "overwrite"
 		initial := 123
 
-		store.Put(key, initial, 1*time.Hour)
+		err := store.Set(key, initial, 1*time.Hour)
+		assert.NoError(t, err, "expected no error when storing value")
 
-		actual, err := store.Get(key)
-		assert.NoError(t, err, "expected no error for initial value")
-		assert.Equal(t, initial, actual, "expected initial value to be returned")
+		item, _ := store.data.Load(key)
+		actual, _ := item.(memoryItem)
+		assert.Equal(t, initial, actual.value, "expected initial value to be returned")
 
 		newValue := 100
-		store.Put(key, newValue, 1*time.Hour)
+		store.Set(key, newValue, 1*time.Hour)
 
-		actual, err = store.Get(key)
-		assert.NoError(t, err, "expected no error for updated value")
-		assert.Equal(t, newValue, actual, "expected updated value to overwrite initial value")
-	})
-
-	t.Run("should expire cache after duration", func(t *testing.T) {
-		key := "with_duration"
-		expected := 123
-
-		store.Put(key, expected, 10*time.Second)
-
-		actual, err := store.Get(key)
-		assert.NoError(t, err, "expected no error before expiration")
-		assert.Equal(t, expected, actual, "expected value before expiration")
-
-		moveForward(11 * time.Second)
-
-		actual, err = store.Get(key)
-		assert.ErrorIs(t, err, multicache.ErrCacheMiss, "expected cache miss error after expiration")
-		assert.Nil(t, actual, "expected nil value after expiration")
+		item, _ = store.data.Load(key)
+		actual, _ = item.(memoryItem)
+		assert.Equal(t, newValue, actual.value, "expected updated value to overwrite initial value")
 	})
 
 	t.Run("should keep value forever when TTL is 0", func(t *testing.T) {
 		key := "forever_zero"
 		expected := "value-forever"
 
-		store.Put(key, expected, 0)
-		moveForward(10 * 365 * 24 * time.Hour) // 10 years
+		err := store.Set(key, expected, 0)
+		assert.NoError(t, err, "expected no error when storing value")
 
-		actual, err := store.Get(key)
-		assert.NoError(t, err, "expected no error even after long duration")
-		assert.Equal(t, expected, actual, "expected value to never expire with TTL=0")
+		// Wait a bit to simulate time passing
+		time.Sleep(20 * time.Millisecond)
+
+		// Key should still exist (never expires)
+		item, _ := store.data.Load(key)
+		actual, _ := item.(memoryItem)
+		assert.Equal(t, expected, actual.value, "expected value to never expire with TTL=0")
 	})
 
-	t.Run("should keep value forever when TTL is not provided", func(t *testing.T) {
-		key := "forever_none"
-		expected := "value-forever"
+	t.Run("should return error with negative TTL", func(t *testing.T) {
+		err := store.Set("negatif", 123, -1)
 
-		store.Put(key, expected)
-		moveForward(10 * 365 * 24 * time.Hour) // 10 years
-
-		actual, err := store.Get(key)
-		assert.NoError(t, err, "expected no error even after long duration")
-		assert.Equal(t, expected, actual, "expected value to never expire without TTL")
-	})
-
-	t.Run("should delete cache item with negative TTL", func(t *testing.T) {
-		key := "negatif"
-		expected := 123
-
-		store.Put(key, expected)
-
-		actual, err := store.Get(key)
-		assert.NoError(t, err, "expected no error before deletion")
-		assert.Equal(t, expected, actual, "expected value before deletion")
-
-		store.Put(key, expected, -1)
-
-		actual, err = store.Get(key)
-		assert.ErrorIs(t, err, multicache.ErrCacheMiss, "expected cache miss error after negative TTL")
-		assert.Nil(t, actual, "expected nil value after negative TTL")
+		assert.ErrorIs(t, err, multicache.ErrInvalidValue, "expected invalid value error")
 	})
 }
 
 func BenchmarkMemoryStore_deleteExpiredKeys(b *testing.B) {
-	baseTime := time.Now()
-
 	// Prepare store with mixed expired and non-expired keys
 	store := &MemoryStore{
-		data:    make(map[string]memoryItem),
-		nowFunc: func() time.Time { return baseTime },
+		data: sync.Map{},
 	}
 
 	// Fill the store with 10000 keys, half expired, half not
@@ -720,14 +663,14 @@ func BenchmarkMemoryStore_deleteExpiredKeys(b *testing.B) {
 		key := fmt.Sprintf("key-%d", i)
 		var expiration time.Time
 		if i%2 == 0 {
-			expiration = baseTime.Add(-1 * time.Minute) // expired
+			expiration = time.Now().Add(-1 * time.Minute) // expired
 		} else {
-			expiration = baseTime.Add(1 * time.Hour) // not expired
+			expiration = time.Now().Add(1 * time.Hour) // not expired
 		}
-		store.data[key] = memoryItem{
+		store.data.Store(key, memoryItem{
 			value:      i,
 			expiration: expiration,
-		}
+		})
 	}
 
 	for b.Loop() {
@@ -735,119 +678,35 @@ func BenchmarkMemoryStore_deleteExpiredKeys(b *testing.B) {
 	}
 }
 
-func BenchmarkMemoryStore_findExpiredKeys(b *testing.B) {
-	baseTime := time.Now()
+func BenchmarkMemoryStore_Clear(b *testing.B) {
 	store := &MemoryStore{
-		data: make(map[string]memoryItem),
-		nowFunc: func() time.Time {
-			return baseTime
-		},
-	}
-
-	// Fill the store with 10000 keys, half expired, half not
-	for i := range 10000 {
-		key := fmt.Sprintf("key-%d", i)
-		var expiration time.Time
-		if i%2 == 0 {
-			expiration = baseTime.Add(-1 * time.Minute) // expired
-		} else {
-			expiration = baseTime.Add(1 * time.Hour) // not expired
-		}
-		store.data[key] = memoryItem{
-			value:      i,
-			expiration: expiration,
-		}
-	}
-
-	for b.Loop() {
-		_ = store.findExpiredKeys()
-	}
-}
-
-func BenchmarkMemoryStore_Add(b *testing.B) {
-	baseTime := time.Date(2025, 8, 17, 0, 0, 0, 0, time.UTC)
-
-	store := &MemoryStore{
-		data:    make(map[string]memoryItem),
-		nowFunc: func() time.Time { return baseTime },
-	}
-
-	// Prepopulate keys for testing duplicates and expired
-	store.data["exists"] = memoryItem{
-		value:      123,
-		expiration: baseTime.Add(1 * time.Hour),
-	}
-	store.data["expired"] = memoryItem{
-		value:      456,
-		expiration: baseTime.Add(-1 * time.Minute),
-	}
-
-	cases := []struct {
-		name  string
-		key   string
-		value any
-	}{
-		{"add new key", "new", 999},
-		{"add existing key", "exists", 111},
-		{"add expired key", "expired", 777},
-	}
-
-	for _, tt := range cases {
-		b.Run(tt.name, func(b *testing.B) {
-			for b.Loop() {
-				_ = store.Add(tt.key, tt.value)
-			}
-		})
-	}
-}
-
-func BenchmarkMemoryStore_Flush(b *testing.B) {
-	store := &MemoryStore{
-		data: make(map[string]memoryItem),
+		data: sync.Map{},
 	}
 
 	for i := range 1000 {
 		key := fmt.Sprintf("key-%d", i)
-		store.Put(key, i, time.Hour)
+		store.data.Store(key, memoryItem{
+			value:      i,
+			expiration: time.Now().Add(time.Hour),
+		})
 	}
 
 	for b.Loop() {
-		store.Flush()
+		store.Clear()
 	}
 }
 
-func BenchmarkMemoryStore_Forever(b *testing.B) {
-	baseTime := time.Date(2025, 8, 16, 0, 0, 0, 0, time.UTC)
+func BenchmarkMemoryStore_Delete(b *testing.B) {
 	store := &MemoryStore{
-		data:    make(map[string]memoryItem),
-		nowFunc: func() time.Time { return baseTime },
-	}
-
-	cases := []struct {
-		name  string
-		key   string
-		value any
-	}{
-		{"add new cache", "add_cache", 123},
-	}
-
-	for _, tt := range cases {
-		b.Run(tt.name, func(b *testing.B) {
-			for b.Loop() {
-				store.Put(tt.key, tt.value)
-			}
-		})
-	}
-}
-
-func BenchmarkMemoryStore_Forget(b *testing.B) {
-	store := &MemoryStore{
-		data: make(map[string]memoryItem),
+		data: sync.Map{},
 	}
 
 	for i := range 10000 {
 		key := fmt.Sprintf("key-%d", i)
-		store.Put(key, i, time.Hour)
+		store.data.Store(key, memoryItem{
+			value:      i,
+			expiration: time.Now().Add(time.Hour),
+		})
 	}
 
 	cases := []struct {
@@ -861,68 +720,149 @@ func BenchmarkMemoryStore_Forget(b *testing.B) {
 	for _, tt := range cases {
 		b.Run(tt.name, func(b *testing.B) {
 			for b.Loop() {
-				store.Forget(tt.key)
+				store.Delete(tt.key)
+			}
+		})
+	}
+}
+
+func BenchmarkMemoryStore_DeleteByPattern(b *testing.B) {
+	store := &MemoryStore{
+		data: sync.Map{},
+	}
+
+	numKeys := 100_000
+	for i := range numKeys {
+		if i%2 == 0 {
+			store.Set(fmt.Sprintf("auth:tenant:%d:user:%d:access_token:%d", i%100, i%1000, i), "value", 0)
+		} else {
+			store.Set(fmt.Sprintf("user_permissions:tenant:%d:user:%d", i%100, i%1000), "value", 0)
+		}
+	}
+
+	for b.Loop() {
+		store.DeleteByPattern("auth:tenant:*:user:123:access_token:*")
+	}
+}
+
+func BenchmarkMemoryStore_DeleteMany(b *testing.B) {
+	store := &MemoryStore{
+		data: sync.Map{},
+	}
+
+	makeKeys := func(prefix string, n int) []string {
+		keys := make([]string, n)
+		for i := 0; i < n; i++ {
+			key := fmt.Sprintf("%s-%d", prefix, i+1)
+			keys[i] = key
+			store.data.Store(key, memoryItem{
+				value:      "value",
+				expiration: time.Time{},
+			})
+		}
+		return keys
+	}
+
+	key1 := makeKeys("delete_1", 1)
+	key10 := makeKeys("delete_10", 10)
+	key100 := makeKeys("delete_100", 100)
+
+	cases := []struct {
+		name string
+		keys []string
+	}{
+		{"delete 1", key1},
+		{"delete 10", key10},
+		{"delete 100", key100},
+	}
+
+	for _, tt := range cases {
+		b.Run(tt.name, func(b *testing.B) {
+			for b.Loop() {
+				store.DeleteMany(tt.keys...)
 			}
 		})
 	}
 }
 
 func BenchmarkMemoryStore_Get(b *testing.B) {
-	baseTime := time.Date(2025, 8, 16, 0, 0, 0, 0, time.UTC)
 	store := &MemoryStore{
-		data:    make(map[string]memoryItem),
-		nowFunc: func() time.Time { return baseTime },
+		data: sync.Map{},
 	}
 
-	moveForward := func(d time.Duration) {
-		baseTime = baseTime.Add(d)
-	}
-
-	store.Put("expired_key", 123, 10*time.Minute)
-	store.Put("forever", "value_forever", 0)
-	store.Put("shortlived", 123, 10*time.Second)
-	store.Put("expired", 123, 10*time.Minute)
+	store.data.Store("shortlived", memoryItem{
+		value:      123,
+		expiration: time.Now().Add(10 * time.Second),
+	})
+	store.data.Store("expired", memoryItem{
+		value:      123,
+		expiration: time.Now().Add(-10 * time.Minute),
+	})
+	store.data.Store("forever", memoryItem{
+		value:      123,
+		expiration: time.Time{},
+	})
 
 	cases := []struct {
-		name     string
-		key      string
-		fb       any
-		duration time.Duration
+		name string
+		key  string
 	}{
-		{"non-existing key", "not_exists", nil, 0},
-		{"non-existing key with fallback", "non_existing_key", "fallback_value", 0},
-		{"expired key with fallback", "expired_key", 100, 11 * time.Minute},
-		{"cache forever key", "forever", nil, 10 * 365 * 24 * time.Hour},
-		{"non-expired key", "shortlived", nil, 0},
-		{"expired key", "expired", nil, 11 * time.Minute},
+		{"non-existing key", "not_exists"},
+		{"non-expired key", "shortlived"},
+		{"cache forever key", "forever"},
+		{"expired key", "expired"},
 	}
 
 	for _, tt := range cases {
 		b.Run(tt.name, func(b *testing.B) {
 			for b.Loop() {
-				moveForward(tt.duration)
-				store.Get(tt.key, tt.fb)
+				store.Get(tt.key)
+			}
+		})
+	}
+}
+
+func BenchmarkMemoryStore_GetOrSet(b *testing.B) {
+	store := &MemoryStore{
+		data: sync.Map{},
+	}
+
+	cases := []struct {
+		name  string
+		key   string
+		value any
+		ttl   time.Duration
+	}{
+		{"cache miss then set", "miss_then_set", 123, time.Hour},
+		{"cache hit existing key", "hit_existing", 123, time.Hour},
+		{"cache forever with TTL 0", "forever", 123, 0},
+	}
+
+	// Pre-populate "hit_existing"
+	_, _ = store.GetOrSet("hit_existing", time.Hour, 123)
+
+	for _, tt := range cases {
+		b.Run(tt.name, func(b *testing.B) {
+			for b.Loop() {
+				store.GetOrSet(tt.key, tt.ttl, tt.value)
 			}
 		})
 	}
 }
 
 func BenchmarkMemoryStore_Has(b *testing.B) {
-	baseTime := time.Date(2025, 8, 17, 0, 0, 0, 0, time.UTC)
-
 	store := &MemoryStore{
-		data:    make(map[string]memoryItem),
-		nowFunc: func() time.Time { return baseTime },
+		data: sync.Map{},
 	}
 
-	store.data["valid"] = memoryItem{
+	store.data.Store("valid", memoryItem{
 		value:      123,
-		expiration: baseTime.Add(1 * time.Hour), // valid
-	}
-	store.data["expired"] = memoryItem{
+		expiration: time.Now().Add(1 * time.Hour), // valid
+	})
+	store.data.Store("expired", memoryItem{
 		value:      456,
-		expiration: baseTime.Add(-1 * time.Hour), // expired
-	}
+		expiration: time.Now().Add(-1 * time.Hour), // expired
+	})
 
 	cases := []struct {
 		name string
@@ -943,31 +883,26 @@ func BenchmarkMemoryStore_Has(b *testing.B) {
 	}
 }
 
-func BenchmarkMemoryStore_Put(b *testing.B) {
-	baseTime := time.Date(2025, 8, 16, 0, 0, 0, 0, time.UTC)
+func BenchmarkMemoryStore_Set(b *testing.B) {
 	store := &MemoryStore{
-		data:    make(map[string]memoryItem),
-		nowFunc: func() time.Time { return baseTime },
+		data: sync.Map{},
 	}
 
 	cases := []struct {
 		name  string
 		key   string
 		value any
-		ttl   []time.Duration
+		ttl   time.Duration
 	}{
-		{"add new cache", "add_cache", 123, []time.Duration{1 * time.Hour}},
-		{"overwrite existing cache", "overwrite", 100, []time.Duration{1 * time.Hour}},
-		{"expire after duration", "with_duration", 123, []time.Duration{10 * time.Second}},
-		{"cache forever with TTL 0", "forever_zero", "value-forever", []time.Duration{0}},
-		{"cache forever without TTL", "forever_none", "value-forever", nil},
-		{"delete with negative TTL", "negatif", 123, []time.Duration{-1}},
+		{"add new cache", "add_cache", 123, 1 * time.Hour},
+		{"overwrite existing cache", "overwrite", 123, 1 * time.Hour},
+		{"cache forever with TTL 0", "forever", 123, 0},
 	}
 
 	for _, tt := range cases {
 		b.Run(tt.name, func(b *testing.B) {
 			for b.Loop() {
-				store.Put(tt.key, tt.value, tt.ttl...)
+				store.Set(tt.key, tt.value, tt.ttl)
 			}
 		})
 	}

@@ -5,11 +5,12 @@ import "time"
 type Factory func(config map[string]any) (Store, error)
 
 type Store interface {
-	Add(key string, value any, ttl ...time.Duration) error
-	Flush() error
-	Forever(key string, value any) error
-	Forget(key string) error
-	Get(key string, fallback ...any) (any, error)
+	Clear() error
+	Delete(key string) error
+	DeleteByPattern(pattern string) error
+	DeleteMany(keys ...string) error
+	Get(key string) (any, error)
+	GetOrSet(key string, ttl time.Duration, value any) (any, error)
 	Has(key string) (bool, error)
-	Put(key string, value any, ttl ...time.Duration) error
+	Set(key string, value any, ttl time.Duration) error
 }
