@@ -2,8 +2,6 @@ package multicache
 
 import "time"
 
-type Factory func(config map[string]any) (Store, error)
-
 type Store interface {
 	Clear() error
 	Delete(key string) error
