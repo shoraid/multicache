@@ -14,7 +14,7 @@ import (
 
 func TestNewMemoryStore(t *testing.T) {
 	t.Run("should create store with default cleanup interval when config is empty", func(t *testing.T) {
-		storeInterface, err := NewMemoryStore(map[string]any{})
+		storeInterface, err := NewMemoryStore(MemoryConfig{})
 		assert.NoError(t, err, "expected no error when creating store with empty config")
 
 		store, ok := storeInterface.(*MemoryStore)
@@ -24,8 +24,8 @@ func TestNewMemoryStore(t *testing.T) {
 
 	t.Run("should use provided valid cleanup_interval from config", func(t *testing.T) {
 		interval := 50 * time.Millisecond
-		storeInterface, err := NewMemoryStore(map[string]any{
-			"cleanup_interval": interval,
+		storeInterface, err := NewMemoryStore(MemoryConfig{
+			CleanupInterval: interval,
 		})
 		assert.NoError(t, err, "expected no error when creating store with valid cleanup_interval")
 
@@ -34,8 +34,8 @@ func TestNewMemoryStore(t *testing.T) {
 	})
 
 	t.Run("should ignore invalid cleanup_interval values", func(t *testing.T) {
-		storeInterface, err := NewMemoryStore(map[string]any{
-			"cleanup_interval": "invalid",
+		storeInterface, err := NewMemoryStore(MemoryConfig{
+			CleanupInterval: -1,
 		})
 		assert.NoError(t, err, "expected no error when creating store with invalid cleanup_interval type")
 
@@ -44,8 +44,8 @@ func TestNewMemoryStore(t *testing.T) {
 	})
 
 	t.Run("should delete expired keys automatically", func(t *testing.T) {
-		storeInterface, err := NewMemoryStore(map[string]any{
-			"cleanup_interval": 10 * time.Millisecond,
+		storeInterface, err := NewMemoryStore(MemoryConfig{
+			CleanupInterval: 10 * time.Millisecond,
 		})
 		assert.NoError(t, err, "expected no error when creating store with short cleanup interval")
 		store := storeInterface.(*MemoryStore)
@@ -65,8 +65,8 @@ func TestNewMemoryStore(t *testing.T) {
 	})
 
 	t.Run("should allow multiple independent stores", func(t *testing.T) {
-		store1, _ := NewMemoryStore(map[string]any{})
-		store2, _ := NewMemoryStore(map[string]any{})
+		store1, _ := NewMemoryStore(MemoryConfig{})
+		store2, _ := NewMemoryStore(MemoryConfig{})
 
 		s1 := store1.(*MemoryStore)
 		s2 := store2.(*MemoryStore)

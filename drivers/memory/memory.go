@@ -25,16 +25,14 @@ type memoryItem struct {
 // It starts a background goroutine to periodically clean up expired keys.
 // The cleanup interval can be provided via the config map under "cleanup_interval".
 // If not provided, a default interval of 10 minutes is used.
-func NewMemoryStore(config map[string]any) (multicache.Store, error) {
+func NewMemoryStore(config MemoryConfig) (multicache.Store, error) {
 	store := &MemoryStore{}
 
 	// Set the cleanup interval from config, or use default
 	cleanupInterval := multicache.DefaultCleanupInterval
 
-	if v, exists := config["cleanup_interval"]; exists {
-		if d, isDuration := v.(time.Duration); isDuration && d > 0 {
-			cleanupInterval = d
-		}
+	if config.CleanupInterval > 0 {
+		cleanupInterval = config.CleanupInterval
 	}
 
 	// Start the background goroutine for cleaning up expired keys
