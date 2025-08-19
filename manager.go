@@ -1,6 +1,7 @@
 package multicache
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/spf13/cast"
@@ -16,7 +17,9 @@ type Manager interface {
 	GetBool(key string) (bool, error)
 	GetInt(key string) (int, error)
 	GetInt64(key string) (int64, error)
+	GetInts(key string) ([]int, error)
 	GetString(key string) (string, error)
+	GetStrings(key string) ([]string, error)
 	GetOrSet(key string, ttl time.Duration, value any) (any, error)
 	Has(key string) (bool, error)
 	Set(key string, value any, ttl time.Duration) error
@@ -105,6 +108,35 @@ func (m *managerImpl) GetInt64(key string) (int64, error) {
 	return intVal, nil
 }
 
+func (m *managerImpl) GetInts(key string) ([]int, error) {
+	val, err := m.store.Get(key)
+	if err != nil {
+		return nil, err
+	}
+
+	switch v := val.(type) {
+	case string:
+		var data []int
+		if err := json.Unmarshal([]byte(v), &data); err != nil {
+			return nil, err
+		}
+		return data, nil
+
+	case []byte:
+		var data []int
+		if err := json.Unmarshal(v, &data); err != nil {
+			return nil, err
+		}
+		return data, nil
+
+	case []int:
+		return v, nil
+
+	default:
+		return nil, ErrTypeMismatch
+	}
+}
+
 func (m *managerImpl) GetString(key string) (string, error) {
 	val, err := m.store.Get(key)
 	if err != nil {
@@ -117,6 +149,35 @@ func (m *managerImpl) GetString(key string) (string, error) {
 	}
 
 	return strVal, nil
+}
+
+func (m *managerImpl) GetStrings(key string) ([]string, error) {
+	val, err := m.store.Get(key)
+	if err != nil {
+		return nil, err
+	}
+
+	switch v := val.(type) {
+	case string:
+		var data []string
+		if err := json.Unmarshal([]byte(v), &data); err != nil {
+			return nil, err
+		}
+		return data, nil
+
+	case []byte:
+		var data []string
+		if err := json.Unmarshal(v, &data); err != nil {
+			return nil, err
+		}
+		return data, nil
+
+	case []string:
+		return v, nil
+
+	default:
+		return nil, ErrTypeMismatch
+	}
 }
 
 func (m *managerImpl) GetOrSet(key string, ttl time.Duration, value any) (any, error) {
