@@ -239,6 +239,7 @@ func TestMemoryStore_deleteExpiredKeys(t *testing.T) {
 }
 
 func TestMemoryStore_Clear(t *testing.T) {
+	ctx := context.Background()
 	store := &MemoryStore{
 		data: sync.Map{},
 	}
@@ -266,7 +267,7 @@ func TestMemoryStore_Clear(t *testing.T) {
 		actual2, _ := item2.(memoryItem)
 		assert.Equal(t, expected2, actual2.value, "expected value before deletion")
 
-		err := store.Clear()
+		err := store.Clear(ctx)
 		assert.NoError(t, err, "expected no error when clear all items")
 
 		item1, _ = store.data.Load(key1)
@@ -280,6 +281,7 @@ func TestMemoryStore_Clear(t *testing.T) {
 }
 
 func TestMemoryStore_Delete(t *testing.T) {
+	ctx := context.Background()
 	store := &MemoryStore{
 		data: sync.Map{},
 	}
@@ -296,7 +298,7 @@ func TestMemoryStore_Delete(t *testing.T) {
 		actual, _ := item.(memoryItem)
 		assert.Equal(t, expected, actual.value, "expected value before deletion")
 
-		err := store.Delete(key)
+		err := store.Delete(ctx, key)
 		assert.NoError(t, err, "expected no error when deleting")
 
 		item, _ = store.data.Load(key)
@@ -306,6 +308,7 @@ func TestMemoryStore_Delete(t *testing.T) {
 }
 
 func TestMemoryStore_DeleteByPattern(t *testing.T) {
+	ctx := context.Background()
 	store := &MemoryStore{
 		data: sync.Map{},
 	}
@@ -333,7 +336,7 @@ func TestMemoryStore_DeleteByPattern(t *testing.T) {
 	})
 
 	t.Run("should delete keys matching single wildcard pattern", func(t *testing.T) {
-		err := store.DeleteByPattern("auth:tenant:*:user:123:access_token:*")
+		err := store.DeleteByPattern(ctx, "auth:tenant:*:user:123:access_token:*")
 		assert.NoError(t, err, "expected no error deleting by pattern")
 
 		// Keys with tenant:1 and tenant:2 should be deleted
@@ -348,7 +351,7 @@ func TestMemoryStore_DeleteByPattern(t *testing.T) {
 	})
 
 	t.Run("should not delete keys if no match", func(t *testing.T) {
-		err := store.DeleteByPattern("not:matching:*")
+		err := store.DeleteByPattern(ctx, "not:matching:*")
 		assert.NoError(t, err, "expected no error when no keys match")
 
 		// "user_permissions..." should still exist
@@ -359,7 +362,7 @@ func TestMemoryStore_DeleteByPattern(t *testing.T) {
 	})
 
 	t.Run("should delete keys matching multiple wildcards", func(t *testing.T) {
-		err := store.DeleteByPattern("user_products:user:123:products:*:item:123")
+		err := store.DeleteByPattern(ctx, "user_products:user:123:products:*:item:123")
 		assert.NoError(t, err, "expected no error deleting with multiple wildcards")
 
 		item, _ := store.data.Load("user_products:user:123:products:1:item:123")
@@ -369,7 +372,7 @@ func TestMemoryStore_DeleteByPattern(t *testing.T) {
 	})
 
 	t.Run("should delete keys with exact match pattern", func(t *testing.T) {
-		err := store.DeleteByPattern("user_permissions:tenant:123:user:456")
+		err := store.DeleteByPattern(ctx, "user_permissions:tenant:123:user:456")
 		assert.NoError(t, err, "expected no error deleting with exact match")
 
 		item, _ := store.data.Load("user_permissions:tenant:123:user:456")
@@ -387,6 +390,7 @@ func TestMemoryStore_DeleteByPattern(t *testing.T) {
 }
 
 func TestMemoryStore_DeleteMany(t *testing.T) {
+	ctx := context.Background()
 	store := &MemoryStore{
 		data: sync.Map{},
 	}
@@ -406,7 +410,7 @@ func TestMemoryStore_DeleteMany(t *testing.T) {
 	})
 
 	t.Run("should delete existing keys", func(t *testing.T) {
-		err := store.DeleteMany("key1", "key2")
+		err := store.DeleteMany(ctx, "key1", "key2")
 		assert.NoError(t, err, "expected no error when deleting existing keys")
 
 		item1, _ := store.data.Load("key1")
@@ -423,7 +427,7 @@ func TestMemoryStore_DeleteMany(t *testing.T) {
 	})
 
 	t.Run("should handle non-existing key gracefully", func(t *testing.T) {
-		err := store.DeleteMany("missing")
+		err := store.DeleteMany(ctx, "missing")
 		assert.NoError(t, err, "expected no error when deleting non-existing key")
 
 		item3, _ := store.data.Load("key3")
@@ -432,7 +436,7 @@ func TestMemoryStore_DeleteMany(t *testing.T) {
 	})
 
 	t.Run("should delete mix of existing and missing keys", func(t *testing.T) {
-		err := store.DeleteMany("key3", "missing")
+		err := store.DeleteMany(ctx, "key3", "missing")
 		assert.NoError(t, err, "expected no error when deleting mix of keys")
 
 		item3, _ := store.data.Load("key3")
@@ -441,12 +445,13 @@ func TestMemoryStore_DeleteMany(t *testing.T) {
 	})
 
 	t.Run("should handle empty input without error", func(t *testing.T) {
-		err := store.DeleteMany()
+		err := store.DeleteMany(ctx)
 		assert.NoError(t, err, "expected no error when deleting with empty input")
 	})
 }
 
 func TestMemoryStore_Get(t *testing.T) {
+	ctx := context.Background()
 	store := &MemoryStore{
 		data: sync.Map{},
 	}
@@ -459,7 +464,7 @@ func TestMemoryStore_Get(t *testing.T) {
 			expiration: time.Now().Add(10 * time.Second),
 		})
 
-		actual, err := store.Get(key)
+		actual, err := store.Get(ctx, key)
 
 		assert.NoError(t, err, "expected no error for non-expired key")
 		assert.Equal(t, expected, actual, "expected value for key that has not expired")
@@ -468,7 +473,7 @@ func TestMemoryStore_Get(t *testing.T) {
 	t.Run("should return error cache miss for non-existing key", func(t *testing.T) {
 		key := "not_exists"
 
-		actual, err := store.Get(key)
+		actual, err := store.Get(ctx, key)
 
 		assert.ErrorIs(t, err, multicache.ErrCacheMiss, "expected cache miss error for non-existing key")
 		assert.Nil(t, actual, "expected nil value for non-existing key")
@@ -482,7 +487,7 @@ func TestMemoryStore_Get(t *testing.T) {
 			expiration: time.Now().Add(-10 * time.Minute),
 		})
 
-		actual, err := store.Get(key)
+		actual, err := store.Get(ctx, key)
 
 		assert.ErrorIs(t, err, multicache.ErrCacheMiss, "expected cache miss error for expired key")
 		assert.Nil(t, actual, "expected nil value for expired key")
@@ -490,6 +495,7 @@ func TestMemoryStore_Get(t *testing.T) {
 }
 
 func TestMemoryStore_GetOrSet(t *testing.T) {
+	ctx := context.Background()
 	store := &MemoryStore{
 		data: sync.Map{},
 	}
@@ -502,7 +508,7 @@ func TestMemoryStore_GetOrSet(t *testing.T) {
 			expiration: time.Now().Add(5 * time.Minute),
 		})
 
-		actual, err := store.GetOrSet(key, 1*time.Minute, "new_value")
+		actual, err := store.GetOrSet(ctx, key, 1*time.Minute, "new_value")
 
 		assert.NoError(t, err, "expected no error when key exists")
 		assert.Equal(t, expected, actual, "expected existing value to be returned, not the new one")
@@ -512,7 +518,7 @@ func TestMemoryStore_GetOrSet(t *testing.T) {
 		key := "missing"
 		expected := "new_value"
 
-		actual, err := store.GetOrSet(key, 1*time.Minute, expected)
+		actual, err := store.GetOrSet(ctx, key, 1*time.Minute, expected)
 
 		assert.NoError(t, err, "expected no error when setting a new value")
 		assert.Equal(t, expected, actual, "expected new value to be returned when key is missing")
@@ -531,7 +537,7 @@ func TestMemoryStore_GetOrSet(t *testing.T) {
 			expiration: time.Now().Add(-1 * time.Minute), // expired
 		})
 
-		actual, err := store.GetOrSet(key, 1*time.Minute, expected)
+		actual, err := store.GetOrSet(ctx, key, 1*time.Minute, expected)
 
 		assert.NoError(t, err, "expected no error when replacing expired value")
 		assert.Equal(t, expected, actual, "expected new value to be returned after expiration")
@@ -548,7 +554,7 @@ func TestMemoryStore_GetOrSet(t *testing.T) {
 		invalidTTL := -5 * time.Minute
 		expected := "value"
 
-		actual, err := store.GetOrSet(key, invalidTTL, expected)
+		actual, err := store.GetOrSet(ctx, key, invalidTTL, expected)
 
 		assert.ErrorIs(t, err, multicache.ErrInvalidValue, "expected invalid TTL error")
 		assert.Nil(t, actual, "expected no value returned on Set error")
@@ -556,12 +562,13 @@ func TestMemoryStore_GetOrSet(t *testing.T) {
 }
 
 func TestMemoryStore_Has(t *testing.T) {
+	ctx := context.Background()
 	store := &MemoryStore{
 		data: sync.Map{},
 	}
 
 	t.Run("should return false for missing key", func(t *testing.T) {
-		exists, err := store.Has("missing")
+		exists, err := store.Has(ctx, "missing")
 
 		assert.NoError(t, err, "expected no error for missing key")
 		assert.False(t, exists, "expected missing key to return false")
@@ -573,7 +580,7 @@ func TestMemoryStore_Has(t *testing.T) {
 			expiration: time.Now().Add(1 * time.Hour),
 		})
 
-		exists, err := store.Has("exists")
+		exists, err := store.Has(ctx, "exists")
 
 		assert.NoError(t, err, "expected no error for existing key")
 		assert.True(t, exists, "expected existing key to return true")
@@ -585,7 +592,7 @@ func TestMemoryStore_Has(t *testing.T) {
 			expiration: time.Now().Add(-1 * time.Minute),
 		})
 
-		exists, err := store.Has("expired")
+		exists, err := store.Has(ctx, "expired")
 
 		assert.NoError(t, err, "expected no error for expired key")
 		assert.False(t, exists, "expected expired key to return false")
@@ -593,6 +600,7 @@ func TestMemoryStore_Has(t *testing.T) {
 }
 
 func TestMemoryStore_Set(t *testing.T) {
+	ctx := context.Background()
 	store := &MemoryStore{
 		data: sync.Map{},
 	}
@@ -601,7 +609,7 @@ func TestMemoryStore_Set(t *testing.T) {
 		key := "add_cache"
 		expected := 123
 
-		err := store.Set(key, expected, 1*time.Hour)
+		err := store.Set(ctx, key, expected, 1*time.Hour)
 		assert.NoError(t, err, "expected no error when storing value")
 
 		item, _ := store.data.Load(key)
@@ -614,7 +622,7 @@ func TestMemoryStore_Set(t *testing.T) {
 		key := "overwrite"
 		initial := 123
 
-		err := store.Set(key, initial, 1*time.Hour)
+		err := store.Set(ctx, key, initial, 1*time.Hour)
 		assert.NoError(t, err, "expected no error when storing value")
 
 		item, _ := store.data.Load(key)
@@ -622,7 +630,7 @@ func TestMemoryStore_Set(t *testing.T) {
 		assert.Equal(t, initial, actual.value, "expected initial value to be returned")
 
 		newValue := 100
-		store.Set(key, newValue, 1*time.Hour)
+		store.Set(ctx, key, newValue, 1*time.Hour)
 
 		item, _ = store.data.Load(key)
 		actual, _ = item.(memoryItem)
@@ -633,7 +641,7 @@ func TestMemoryStore_Set(t *testing.T) {
 		key := "forever_zero"
 		expected := "value-forever"
 
-		err := store.Set(key, expected, 0)
+		err := store.Set(ctx, key, expected, 0)
 		assert.NoError(t, err, "expected no error when storing value")
 
 		// Wait a bit to simulate time passing
@@ -646,7 +654,7 @@ func TestMemoryStore_Set(t *testing.T) {
 	})
 
 	t.Run("should return error with negative TTL", func(t *testing.T) {
-		err := store.Set("negatif", 123, -1)
+		err := store.Set(ctx, "negatif", 123, -1)
 
 		assert.ErrorIs(t, err, multicache.ErrInvalidValue, "expected invalid value error")
 	})
@@ -692,7 +700,7 @@ func BenchmarkMemoryStore_Clear(b *testing.B) {
 	}
 
 	for b.Loop() {
-		store.Clear()
+		store.Clear(context.Background())
 	}
 }
 
@@ -720,7 +728,7 @@ func BenchmarkMemoryStore_Delete(b *testing.B) {
 	for _, tt := range cases {
 		b.Run(tt.name, func(b *testing.B) {
 			for b.Loop() {
-				store.Delete(tt.key)
+				store.Delete(context.Background(), tt.key)
 			}
 		})
 	}
@@ -734,14 +742,14 @@ func BenchmarkMemoryStore_DeleteByPattern(b *testing.B) {
 	numKeys := 100_000
 	for i := range numKeys {
 		if i%2 == 0 {
-			store.Set(fmt.Sprintf("auth:tenant:%d:user:%d:access_token:%d", i%100, i%1000, i), "value", 0)
+			store.Set(context.Background(), fmt.Sprintf("auth:tenant:%d:user:%d:access_token:%d", i%100, i%1000, i), "value", 0)
 		} else {
-			store.Set(fmt.Sprintf("user_permissions:tenant:%d:user:%d", i%100, i%1000), "value", 0)
+			store.Set(context.Background(), fmt.Sprintf("user_permissions:tenant:%d:user:%d", i%100, i%1000), "value", 0)
 		}
 	}
 
 	for b.Loop() {
-		store.DeleteByPattern("auth:tenant:*:user:123:access_token:*")
+		store.DeleteByPattern(context.Background(), "auth:tenant:*:user:123:access_token:*")
 	}
 }
 
@@ -779,7 +787,7 @@ func BenchmarkMemoryStore_DeleteMany(b *testing.B) {
 	for _, tt := range cases {
 		b.Run(tt.name, func(b *testing.B) {
 			for b.Loop() {
-				store.DeleteMany(tt.keys...)
+				store.DeleteMany(context.Background(), tt.keys...)
 			}
 		})
 	}
@@ -816,7 +824,7 @@ func BenchmarkMemoryStore_Get(b *testing.B) {
 	for _, tt := range cases {
 		b.Run(tt.name, func(b *testing.B) {
 			for b.Loop() {
-				store.Get(tt.key)
+				store.Get(context.Background(), tt.key)
 			}
 		})
 	}
@@ -839,12 +847,12 @@ func BenchmarkMemoryStore_GetOrSet(b *testing.B) {
 	}
 
 	// Pre-populate "hit_existing"
-	_, _ = store.GetOrSet("hit_existing", time.Hour, 123)
+	_, _ = store.GetOrSet(context.Background(), "hit_existing", time.Hour, 123)
 
 	for _, tt := range cases {
 		b.Run(tt.name, func(b *testing.B) {
 			for b.Loop() {
-				store.GetOrSet(tt.key, tt.ttl, tt.value)
+				store.GetOrSet(context.Background(), tt.key, tt.ttl, tt.value)
 			}
 		})
 	}
@@ -877,7 +885,7 @@ func BenchmarkMemoryStore_Has(b *testing.B) {
 	for _, tt := range cases {
 		b.Run(tt.name, func(b *testing.B) {
 			for b.Loop() {
-				store.Has(tt.key)
+				store.Has(context.Background(), tt.key)
 			}
 		})
 	}
@@ -902,7 +910,7 @@ func BenchmarkMemoryStore_Set(b *testing.B) {
 	for _, tt := range cases {
 		b.Run(tt.name, func(b *testing.B) {
 			for b.Loop() {
-				store.Set(tt.key, tt.value, tt.ttl)
+				store.Set(context.Background(), tt.key, tt.value, tt.ttl)
 			}
 		})
 	}

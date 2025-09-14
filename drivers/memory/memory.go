@@ -80,7 +80,7 @@ func (m *MemoryStore) deleteExpiredKeys() {
 // Use cases:
 //   - Useful for testing, resetting state, or administrative cleanup.
 //   - Should be used carefully in production as it clears all data.
-func (m *MemoryStore) Clear() error {
+func (m *MemoryStore) Clear(ctx context.Context) error {
 	m.data.Clear()
 
 	return nil
@@ -95,7 +95,7 @@ func (m *MemoryStore) Clear() error {
 // Use cases:
 //   - Explicit cache invalidation for a single key.
 //   - Useful when data becomes stale or needs to be refreshed.
-func (m *MemoryStore) Delete(key string) error {
+func (m *MemoryStore) Delete(ctx context.Context, key string) error {
 	m.data.Delete(key)
 
 	return nil
@@ -118,7 +118,7 @@ func (m *MemoryStore) Delete(key string) error {
 //     matching on each key.
 //   - On large caches, this can be slow and should be used sparingly
 //     (e.g., for administrative cleanup rather than frequent operations).
-func (m *MemoryStore) DeleteByPattern(pattern string) error {
+func (m *MemoryStore) DeleteByPattern(ctx context.Context, pattern string) error {
 	regexPattern := "^" + regexp.QuoteMeta(pattern) + "$"
 	regexPattern = strings.ReplaceAll(regexPattern, "\\*", ".*")
 
@@ -144,7 +144,7 @@ func (m *MemoryStore) DeleteByPattern(pattern string) error {
 //   - Iterates over the provided keys and deletes each one from the cache.
 //   - If a key does not exist, it is silently ignored (no error).
 //   - Returns nil always, since deletion is best-effort and non-critical.
-func (m *MemoryStore) DeleteMany(keys ...string) error {
+func (m *MemoryStore) DeleteMany(ctx context.Context, keys ...string) error {
 	for _, key := range keys {
 		m.data.Delete(key)
 	}
@@ -162,7 +162,7 @@ func (m *MemoryStore) DeleteMany(keys ...string) error {
 // Notes:
 //   - Expiration is checked at read time, expired entries are lazily removed.
 //   - Thread-safe since sync.Map is used internally.
-func (m *MemoryStore) Get(key string) (any, error) {
+func (m *MemoryStore) Get(ctx context.Context, key string) (any, error) {
 	value, exists := m.data.Load(key)
 	if !exists {
 		return nil, multicache.ErrCacheMiss
@@ -186,8 +186,8 @@ func (m *MemoryStore) Get(key string) (any, error) {
 //   - If the key is missing or expired, the provided value is stored with the given TTL
 //     and then returned.
 //   - If any error other than ErrCacheMiss occurs, it is returned directly.
-func (m *MemoryStore) GetOrSet(key string, ttl time.Duration, value any) (any, error) {
-	item, err := m.Get(key)
+func (m *MemoryStore) GetOrSet(ctx context.Context, key string, ttl time.Duration, value any) (any, error) {
+	item, err := m.Get(ctx, key)
 	if err == nil {
 		return item, nil
 	}
@@ -196,7 +196,7 @@ func (m *MemoryStore) GetOrSet(key string, ttl time.Duration, value any) (any, e
 		return nil, err
 	}
 
-	if err := m.Set(key, value, ttl); err != nil {
+	if err := m.Set(ctx, key, value, ttl); err != nil {
 		return nil, err
 	}
 
@@ -208,8 +208,8 @@ func (m *MemoryStore) GetOrSet(key string, ttl time.Duration, value any) (any, e
 // Behavior:
 //   - Returns true if the key is present and not expired.
 //   - Returns false if the key is missing or expired.
-func (m *MemoryStore) Has(key string) (bool, error) {
-	_, err := m.Get(key)
+func (m *MemoryStore) Has(ctx context.Context, key string) (bool, error) {
+	_, err := m.Get(ctx, key)
 	if err != nil {
 		return false, nil
 	}
@@ -226,7 +226,7 @@ func (m *MemoryStore) Has(key string) (bool, error) {
 //   - TTL < 0: returns ErrInvalidValue
 //
 // Existing keys are overwritten. Thread-safe via sync.Map.
-func (m *MemoryStore) Set(key string, value any, ttl time.Duration) error {
+func (m *MemoryStore) Set(ctx context.Context, key string, value any, ttl time.Duration) error {
 	if ttl < 0 {
 		return multicache.ErrInvalidValue
 	}
