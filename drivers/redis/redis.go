@@ -2,30 +2,76 @@ package redis
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 	"github.com/shoraid/multicache"
 )
 
-type RedisStore struct {
-	client *redis.Client
+// define this in redis_store.go
+type redisClient interface {
+	FlushDB(ctx context.Context) *redis.StatusCmd
+	Del(ctx context.Context, keys ...string) *redis.IntCmd
+	Get(ctx context.Context, key string) *redis.StringCmd
+	Exists(ctx context.Context, keys ...string) *redis.IntCmd
+	Set(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.StatusCmd
+	Scan(ctx context.Context, cursor uint64, match string, count int64) *redis.ScanCmd
 }
 
-func NewRedisStore(config RedisConfig) (multicache.Store, error) {
-	client := redis.NewClient(&redis.Options{
-		Addr:     config.Addr,
-		Username: config.Username,
-		Password: config.Password,
-		DB:       config.DB,
-	})
+type scanIterator interface {
+	Next(ctx context.Context) bool
+	Val() string
+	Err() error
+}
 
-	store := &RedisStore{
-		client: client,
+// newScanIterator creates an iterator. In prod it wraps go-redis.
+// In tests you can override this var to return a mock iterator.
+var newScanIterator = func(ctx context.Context, c redisClient, pattern string) scanIterator {
+	return c.Scan(ctx, 0, pattern, 0).Iterator()
+}
+
+type RedisStore struct {
+	client redisClient
+}
+
+func NewRedisStore(cfg RedisConfig) (multicache.Store, error) {
+	var tlsConfig *tls.Config
+
+	// Only build TLS config if UseTLS is explicitly true
+	if cfg.UseTLS {
+		var err error
+		tlsConfig, err = buildTLSConfig(cfg.TLSConfig)
+		if err != nil {
+			return nil, fmt.Errorf("failed to build TLS config: %w", err)
+		}
 	}
 
-	return store, nil
+	opts := &redis.Options{
+		Addr:            cfg.Addr,
+		ClientName:      cfg.ClientName,
+		Username:        cfg.Username,
+		Password:        cfg.Password,
+		DB:              cfg.DB,
+		MaxRetries:      cfg.MaxRetries,
+		MinRetryBackoff: cfg.MinRetryBackoff,
+		MaxRetryBackoff: cfg.MaxRetryBackoff,
+		DialTimeout:     cfg.DialTimeout,
+		ReadTimeout:     cfg.ReadTimeout,
+		WriteTimeout:    cfg.WriteTimeout,
+		PoolSize:        cfg.PoolSize,
+		PoolTimeout:     cfg.PoolTimeout,
+		MinIdleConns:    cfg.MinIdleConns,
+		ConnMaxIdleTime: cfg.ConnMaxIdleTime,
+		ConnMaxLifetime: cfg.ConnMaxLifetime,
+		TLSConfig:       tlsConfig, // nil when TLS not used
+	}
+
+	client := redis.NewClient(opts)
+
+	return &RedisStore{client}, nil
 }
 
 func (r *RedisStore) Clear(ctx context.Context) error {
@@ -37,7 +83,7 @@ func (r *RedisStore) Delete(ctx context.Context, key string) error {
 }
 
 func (r *RedisStore) DeleteByPattern(ctx context.Context, pattern string) error {
-	iter := r.client.Scan(ctx, 0, pattern, 0).Iterator()
+	iter := newScanIterator(ctx, r.client, pattern)
 	for iter.Next(ctx) {
 		if err := r.client.Del(ctx, iter.Val()).Err(); err != nil {
 			return err
@@ -91,6 +137,7 @@ func (r *RedisStore) Has(ctx context.Context, key string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+
 	return count > 0, nil
 }
 
@@ -98,5 +145,6 @@ func (r *RedisStore) Set(ctx context.Context, key string, value any, ttl time.Du
 	if ttl < 0 {
 		return multicache.ErrInvalidValue
 	}
+
 	return r.client.Set(ctx, key, value, ttl).Err()
 }

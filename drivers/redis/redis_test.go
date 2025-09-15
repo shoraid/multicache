@@ -2,405 +2,678 @@ package redis
 
 import (
 	"context"
+	"crypto/tls"
+	"errors"
 	"testing"
 	"time"
 
+	"github.com/redis/go-redis/v9"
 	"github.com/shoraid/multicache"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// setupRedisTestClient creates a new Redis client for testing.
-// It requires a running Redis instance at the default address (localhost:6379).
-func setupRedisTestClient(t *testing.T) *RedisStore {
-	config := RedisConfig{
-		Addr:     "localhost:6379",
-		Password: "", // No password by default
-		DB:       1,  // Use DB 1 for testing to avoid conflicts
+func TestRedisStore_NewRedisStore(t *testing.T) {
+	// Backup original buildTLSConfig function so we can restore after test
+	origBuildTLSConfig := buildTLSConfig
+	defer func() { buildTLSConfig = origBuildTLSConfig }()
+
+	tests := []struct {
+		name       string
+		cfg        RedisConfig
+		mockTLS    func()
+		wantErr    bool
+		errMessage string
+	}{
+		{
+			name: "should create store without TLS when UseTLS is false",
+			cfg: RedisConfig{
+				Addr:        "localhost:6379",
+				DB:          0,
+				UseTLS:      false,
+				PoolSize:    5,
+				PoolTimeout: 1 * time.Second,
+			},
+			mockTLS: func() {}, // no override
+			wantErr: false,
+		},
+		{
+			name: "should create store with TLS when UseTLS is true and TLSConfig is valid",
+			cfg: RedisConfig{
+				Addr:   "localhost:6379",
+				DB:     0,
+				UseTLS: true,
+				TLSConfig: &TLSConfig{
+					ServerName: "localhost",
+					MinVersion: tls.VersionTLS12,
+				},
+			},
+			mockTLS: func() {
+				buildTLSConfig = func(cfg *TLSConfig) (*tls.Config, error) {
+					return &tls.Config{ServerName: "localhost"}, nil
+				}
+			},
+			wantErr: false,
+		},
+		{
+			name: "should return error when TLSConfig build fails",
+			cfg: RedisConfig{
+				Addr:   "localhost:6379",
+				DB:     0,
+				UseTLS: true,
+				TLSConfig: &TLSConfig{
+					ServerName: "bad",
+				},
+			},
+			mockTLS: func() {
+				buildTLSConfig = func(cfg *TLSConfig) (*tls.Config, error) {
+					return nil, errors.New("mock: failed to build TLS")
+				}
+			},
+			wantErr:    true,
+			errMessage: "expected error when TLS build fails",
+		},
 	}
-	store, err := NewRedisStore(config)
-	require.NoError(t, err, "failed to create Redis store")
 
-	// Ping the Redis server to ensure connection
-	redisStore, ok := store.(*RedisStore)
-	require.True(t, ok, "store is not a RedisStore")
-	err = redisStore.client.Ping(context.Background()).Err()
-	require.NoError(t, err, "failed to connect to Redis, ensure Redis is running on localhost:6379")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.mockTLS()
+			store, err := NewRedisStore(tt.cfg)
 
-	// Clear the test DB before each test
-	err = redisStore.Clear(context.Background())
-	require.NoError(t, err, "failed to clear Redis DB")
+			if tt.wantErr {
+				require.Error(t, err, "expected an error but got nil")
+				assert.Nil(t, store, "expected store to be nil")
+				if tt.errMessage != "" {
+					assert.Contains(t, err.Error(), "failed to build TLS config", tt.errMessage)
+				}
+				return
+			}
 
-	return redisStore
-}
-
-func TestNewRedisStore(t *testing.T) {
-	config := RedisConfig{
-		Addr:     "localhost:6379",
-		Password: "",
-		DB:       0,
+			require.NoError(t, err, "expected no error but got one")
+			assert.NotNil(t, store, "expected store to be created")
+		})
 	}
-	store, err := NewRedisStore(config)
-	assert.NoError(t, err)
-	assert.NotNil(t, store)
-
-	redisStore, ok := store.(*RedisStore)
-	assert.True(t, ok)
-	assert.NotNil(t, redisStore.client)
-
-	// Test connection by pinging
-	err = redisStore.client.Ping(context.Background()).Err()
-	assert.NoError(t, err, "failed to ping Redis, ensure it's running")
 }
 
 func TestRedisStore_Clear(t *testing.T) {
-	store := setupRedisTestClient(t)
-	ctx := context.Background()
+	tests := []struct {
+		name       string
+		mockFunc   func(ctx context.Context) *redis.StatusCmd
+		wantErr    bool
+		errMessage string
+	}{
+		{
+			name: "should return no error when FlushDB succeeds",
+			mockFunc: func(ctx context.Context) *redis.StatusCmd {
+				cmd := redis.NewStatusCmd(ctx)
+				cmd.SetVal("OK")
+				return cmd
+			},
+			wantErr: false,
+		},
+		{
+			name: "should return error when FlushDB fails",
+			mockFunc: func(ctx context.Context) *redis.StatusCmd {
+				cmd := redis.NewStatusCmd(ctx)
+				cmd.SetErr(errors.New("mock: flush failed"))
+				return cmd
+			},
+			wantErr:    true,
+			errMessage: "expected error when FlushDB fails",
+		},
+	}
 
-	// Add some data
-	err := store.Set(ctx, "key1", "value1", 0)
-	require.NoError(t, err)
-	err = store.Set(ctx, "key2", "value2", 0)
-	require.NoError(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &RedisStore{
+				client: &mockRedisClient{
+					flushDBFunc: tt.mockFunc,
+				},
+			}
 
-	// Verify data exists
-	val1, err := store.Get(ctx, "key1")
-	require.NoError(t, err)
-	assert.Equal(t, "value1", val1)
+			err := store.Clear(context.Background())
 
-	// Clear the store
-	err = store.Clear(ctx)
-	assert.NoError(t, err)
-
-	// Verify data is cleared
-	_, err = store.Get(ctx, "key1")
-	assert.ErrorIs(t, err, multicache.ErrCacheMiss)
-	_, err = store.Get(ctx, "key2")
-	assert.ErrorIs(t, err, multicache.ErrCacheMiss)
+			if tt.wantErr {
+				assert.Error(t, err, tt.errMessage)
+				assert.Contains(t, err.Error(), "flush failed", "expected error message to contain flush failed")
+			} else {
+				assert.NoError(t, err, "expected no error but got one")
+			}
+		})
+	}
 }
 
 func TestRedisStore_Delete(t *testing.T) {
-	store := setupRedisTestClient(t)
-	ctx := context.Background()
+	tests := []struct {
+		name       string
+		key        string
+		mockFunc   func(ctx context.Context, keys ...string) *redis.IntCmd
+		wantErr    bool
+		errMessage string
+	}{
+		{
+			name: "should delete key successfully when Del returns no error",
+			key:  "foo",
+			mockFunc: func(ctx context.Context, keys ...string) *redis.IntCmd {
+				cmd := redis.NewIntCmd(ctx)
+				cmd.SetVal(1) // one key deleted
+				return cmd
+			},
+			wantErr: false,
+		},
+		{
+			name: "should return error when Del fails",
+			key:  "bar",
+			mockFunc: func(ctx context.Context, keys ...string) *redis.IntCmd {
+				cmd := redis.NewIntCmd(ctx)
+				cmd.SetErr(errors.New("mock: delete failed"))
+				return cmd
+			},
+			wantErr:    true,
+			errMessage: "expected error when Del fails",
+		},
+		{
+			name: "should not fail even when key does not exist",
+			key:  "missing",
+			mockFunc: func(ctx context.Context, keys ...string) *redis.IntCmd {
+				cmd := redis.NewIntCmd(ctx)
+				cmd.SetVal(0) // no keys deleted
+				return cmd
+			},
+			wantErr: false,
+		},
+	}
 
-	key := "test_key"
-	value := "test_value"
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &RedisStore{
+				client: &mockRedisClient{delFunc: tt.mockFunc},
+			}
 
-	// Set a key
-	err := store.Set(ctx, key, value, 0)
-	require.NoError(t, err)
+			err := store.Delete(context.Background(), tt.key)
 
-	// Verify it exists
-	val, err := store.Get(ctx, key)
-	require.NoError(t, err)
-	assert.Equal(t, value, val)
-
-	// Delete the key
-	err = store.Delete(ctx, key)
-	assert.NoError(t, err)
-
-	// Verify it's gone
-	_, err = store.Get(ctx, key)
-	assert.ErrorIs(t, err, multicache.ErrCacheMiss)
-
-	// Deleting a non-existent key should not return an error
-	err = store.Delete(ctx, "non_existent_key")
-	assert.NoError(t, err)
+			if tt.wantErr {
+				assert.Error(t, err, tt.errMessage)
+				assert.Contains(t, err.Error(), "delete failed", "expected error message to contain delete failed")
+			} else {
+				assert.NoError(t, err, "expected no error but got one")
+			}
+		})
+	}
 }
 
 func TestRedisStore_DeleteByPattern(t *testing.T) {
-	store := setupRedisTestClient(t)
-	ctx := context.Background()
+	// backup and restore the seam
+	origFactory := newScanIterator
+	defer func() { newScanIterator = origFactory }()
 
-	// Setup test data
-	store.Set(ctx, "user:1:profile", "data1", 0)
-	store.Set(ctx, "user:1:settings", "data2", 0)
-	store.Set(ctx, "user:2:profile", "data3", 0)
-	store.Set(ctx, "product:100:details", "data4", 0)
+	tests := []struct {
+		name      string
+		pattern   string
+		iter      *mockIter
+		mockDel   func(ctx context.Context, keys ...string) *redis.IntCmd
+		wantErr   bool
+		errSubstr string
+	}{
+		{
+			name:    "should return no error when no keys found",
+			pattern: "no:*",
+			iter:    &mockIter{keys: []string{}},
+			mockDel: func(ctx context.Context, keys ...string) *redis.IntCmd {
+				// should not be called, but return OK if it is
+				cmd := redis.NewIntCmd(ctx)
+				cmd.SetVal(0)
+				return cmd
+			},
+			wantErr: false,
+		},
+		{
+			name:    "should delete all matching keys without error",
+			pattern: "ok:*",
+			iter:    &mockIter{keys: []string{"k1", "k2", "k3"}},
+			mockDel: func(ctx context.Context, keys ...string) *redis.IntCmd {
+				cmd := redis.NewIntCmd(ctx)
+				cmd.SetVal(int64(len(keys))) // simulate success
+				return cmd
+			},
+			wantErr: false,
+		},
+		{
+			name:    "should return error when Del fails on a key",
+			pattern: "bad:*",
+			iter:    &mockIter{keys: []string{"k1", "k2"}},
+			mockDel: func(ctx context.Context, keys ...string) *redis.IntCmd {
+				cmd := redis.NewIntCmd(ctx)
+				cmd.SetErr(errors.New("delete failed"))
+				return cmd
+			},
+			wantErr:   true,
+			errSubstr: "delete failed",
+		},
+		{
+			name:    "should return iterator error when iteration ends with error",
+			pattern: "iter-err:*",
+			iter:    &mockIter{keys: []string{"k1"}, err: errors.New("scan iterator error")},
+			mockDel: func(ctx context.Context, keys ...string) *redis.IntCmd {
+				cmd := redis.NewIntCmd(ctx)
+				cmd.SetVal(1)
+				return cmd
+			},
+			wantErr:   true,
+			errSubstr: "scan iterator error",
+		},
+	}
 
-	t.Run("should delete keys matching a pattern", func(t *testing.T) {
-		err := store.DeleteByPattern(ctx, "user:1:*")
-		assert.NoError(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 
-		_, err = store.Get(ctx, "user:1:profile")
-		assert.ErrorIs(t, err, multicache.ErrCacheMiss)
-		_, err = store.Get(ctx, "user:1:settings")
-		assert.ErrorIs(t, err, multicache.ErrCacheMiss)
+			// override seam to return our mock iterator
+			newScanIterator = func(ctx context.Context, c redisClient, pattern string) scanIterator {
+				return tt.iter
+			}
 
-		// Other keys should remain
-		_, err = store.Get(ctx, "user:2:profile")
-		assert.NoError(t, err)
-		_, err = store.Get(ctx, "product:100:details")
-		assert.NoError(t, err)
-	})
+			store := &RedisStore{
+				client: &mockRedisClient{
+					delFunc: tt.mockDel,
+				},
+			}
 
-	t.Run("should handle pattern with no matches", func(t *testing.T) {
-		// Clear previous state
-		store.Clear(ctx)
-		store.Set(ctx, "key1", "val1", 0)
+			err := store.DeleteByPattern(context.Background(), tt.pattern)
 
-		err := store.DeleteByPattern(ctx, "nonexistent:*")
-		assert.NoError(t, err)
-
-		// Key should still exist
-		_, err = store.Get(ctx, "key1")
-		assert.NoError(t, err)
-	})
-
-	t.Run("should delete all keys with '*' pattern", func(t *testing.T) {
-		store.Clear(ctx)
-		store.Set(ctx, "keyA", "valA", 0)
-		store.Set(ctx, "keyB", "valB", 0)
-
-		err := store.DeleteByPattern(ctx, "*")
-		assert.NoError(t, err)
-
-		_, err = store.Get(ctx, "keyA")
-		assert.ErrorIs(t, err, multicache.ErrCacheMiss)
-		_, err = store.Get(ctx, "keyB")
-		assert.ErrorIs(t, err, multicache.ErrCacheMiss)
-	})
+			if tt.wantErr {
+				assert.Error(t, err, "expected an error")
+				if tt.errSubstr != "" {
+					assert.Contains(t, err.Error(), tt.errSubstr, "expected error message to contain "+tt.errSubstr)
+				}
+			} else {
+				assert.NoError(t, err, "expected no error but got one")
+			}
+		})
+	}
 }
 
 func TestRedisStore_DeleteMany(t *testing.T) {
-	store := setupRedisTestClient(t)
-	ctx := context.Background()
+	tests := []struct {
+		name       string
+		keys       []string
+		mockDel    func(ctx context.Context, keys ...string) *redis.IntCmd
+		wantErr    bool
+		errMessage string
+	}{
+		{
+			name: "should return nil when no keys provided",
+			keys: []string{},
+			mockDel: func(ctx context.Context, keys ...string) *redis.IntCmd {
+				t.Fatal("expected Del not to be called when keys are empty")
+				return nil
+			},
+			wantErr: false,
+		},
+		{
+			name: "should delete all keys successfully when Del succeeds",
+			keys: []string{"key1", "key2"},
+			mockDel: func(ctx context.Context, keys ...string) *redis.IntCmd {
+				cmd := redis.NewIntCmd(ctx)
+				cmd.SetVal(int64(len(keys))) // simulate success
+				return cmd
+			},
+			wantErr: false,
+		},
+		{
+			name: "should return error when Del fails",
+			keys: []string{"badkey"},
+			mockDel: func(ctx context.Context, keys ...string) *redis.IntCmd {
+				cmd := redis.NewIntCmd(ctx)
+				cmd.SetErr(errors.New("mock: delete failed"))
+				return cmd
+			},
+			wantErr:    true,
+			errMessage: "expected error when Del fails",
+		},
+	}
 
-	// Setup test data
-	store.Set(ctx, "key1", "value1", 0)
-	store.Set(ctx, "key2", "value2", 0)
-	store.Set(ctx, "key3", "value3", 0)
-	store.Set(ctx, "key4", "value4", 0)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &RedisStore{
+				client: &mockRedisClient{
+					delFunc: tt.mockDel,
+				},
+			}
 
-	t.Run("should delete multiple existing keys", func(t *testing.T) {
-		err := store.DeleteMany(ctx, "key1", "key2")
-		assert.NoError(t, err)
+			err := store.DeleteMany(context.Background(), tt.keys...)
 
-		_, err = store.Get(ctx, "key1")
-		assert.ErrorIs(t, err, multicache.ErrCacheMiss)
-		_, err = store.Get(ctx, "key2")
-		assert.ErrorIs(t, err, multicache.ErrCacheMiss)
-
-		// Other keys should remain
-		_, err = store.Get(ctx, "key3")
-		assert.NoError(t, err)
-		_, err = store.Get(ctx, "key4")
-		assert.NoError(t, err)
-	})
-
-	t.Run("should handle mix of existing and non-existing keys", func(t *testing.T) {
-		err := store.DeleteMany(ctx, "key3", "nonexistent_key")
-		assert.NoError(t, err)
-
-		_, err = store.Get(ctx, "key3")
-		assert.ErrorIs(t, err, multicache.ErrCacheMiss)
-
-		// Other keys should remain
-		_, err = store.Get(ctx, "key4")
-		assert.NoError(t, err)
-	})
-
-	t.Run("should handle empty list of keys", func(t *testing.T) {
-		err := store.DeleteMany(ctx)
-		assert.NoError(t, err)
-		// No keys should be deleted, so key4 should still exist
-		_, err = store.Get(ctx, "key4")
-		assert.NoError(t, err)
-	})
+			if tt.wantErr {
+				assert.Error(t, err, tt.errMessage)
+				assert.Contains(t, err.Error(), "delete failed", "expected error message to contain delete failed")
+			} else {
+				assert.NoError(t, err, "expected no error but got one")
+			}
+		})
+	}
 }
 
 func TestRedisStore_Get(t *testing.T) {
-	store := setupRedisTestClient(t)
-	ctx := context.Background()
+	tests := []struct {
+		name       string
+		key        string
+		mockGet    func(ctx context.Context, key string) *redis.StringCmd
+		wantValue  any
+		wantErr    error
+		errMessage string
+	}{
+		{
+			name: "should return value when key exists",
+			key:  "foo",
+			mockGet: func(ctx context.Context, key string) *redis.StringCmd {
+				cmd := redis.NewStringCmd(ctx)
+				cmd.SetVal("bar")
+				return cmd
+			},
+			wantValue: "bar",
+			wantErr:   nil,
+		},
+		{
+			name: "should return ErrCacheMiss when key does not exist",
+			key:  "missing",
+			mockGet: func(ctx context.Context, key string) *redis.StringCmd {
+				cmd := redis.NewStringCmd(ctx)
+				cmd.SetErr(redis.Nil)
+				return cmd
+			},
+			wantValue: nil,
+			wantErr:   multicache.ErrCacheMiss,
+		},
+		{
+			name: "should return error when Get fails with other error",
+			key:  "foo",
+			mockGet: func(ctx context.Context, key string) *redis.StringCmd {
+				cmd := redis.NewStringCmd(ctx)
+				cmd.SetErr(errors.New("mock: network error"))
+				return cmd
+			},
+			wantValue:  nil,
+			wantErr:    errors.New("mock: network error"),
+			errMessage: "expected error when Get fails",
+		},
+	}
 
-	t.Run("should return value for existing key", func(t *testing.T) {
-		key := "get_key"
-		value := "get_value"
-		err := store.Set(ctx, key, value, 0)
-		require.NoError(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &RedisStore{
+				client: &mockRedisClient{
+					getFunc: tt.mockGet,
+				},
+			}
 
-		retrievedValue, err := store.Get(ctx, key)
-		assert.NoError(t, err)
-		assert.Equal(t, value, retrievedValue)
-	})
+			val, err := store.Get(context.Background(), tt.key)
 
-	t.Run("should return ErrCacheMiss for non-existing key", func(t *testing.T) {
-		_, err := store.Get(ctx, "non_existent_key")
-		assert.ErrorIs(t, err, multicache.ErrCacheMiss)
-	})
-
-	t.Run("should return ErrCacheMiss for expired key", func(t *testing.T) {
-		key := "expired_key"
-		value := "expired_value"
-		err := store.Set(ctx, key, value, 1*time.Millisecond) // Set with a very short TTL
-		require.NoError(t, err)
-
-		time.Sleep(5 * time.Millisecond) // Wait for the key to expire
-
-		_, err = store.Get(ctx, key)
-		assert.ErrorIs(t, err, multicache.ErrCacheMiss)
-	})
+			if tt.wantErr != nil {
+				assert.Error(t, err, tt.errMessage)
+				assert.Equal(t, tt.wantErr.Error(), err.Error(), "expected error to match")
+				assert.Nil(t, val, "expected value to be nil on error")
+			} else {
+				assert.NoError(t, err, "expected no error but got one")
+				assert.Equal(t, tt.wantValue, val, "expected returned value to match")
+			}
+		})
+	}
 }
 
 func TestRedisStore_GetOrSet(t *testing.T) {
-	store := setupRedisTestClient(t)
-	ctx := context.Background()
+	tests := []struct {
+		name        string
+		key         string
+		ttl         time.Duration
+		value       any
+		mockGet     func(ctx context.Context, key string) *redis.StringCmd
+		mockSet     func(ctx context.Context, key string, value interface{}, ttl time.Duration) *redis.StatusCmd
+		wantValue   any
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:  "should return existing value when key exists",
+			key:   "foo",
+			ttl:   5 * time.Second,
+			value: "new-value",
+			mockGet: func(ctx context.Context, key string) *redis.StringCmd {
+				cmd := redis.NewStringCmd(ctx)
+				cmd.SetVal("existing-value")
+				return cmd
+			},
+			mockSet: func(ctx context.Context, key string, value interface{}, ttl time.Duration) *redis.StatusCmd {
+				t.Fatal("expected Set not to be called when value exists")
+				return nil
+			},
+			wantValue: "existing-value",
+			wantErr:   false,
+		},
+		{
+			name:  "should set value and return it when key is missing",
+			key:   "foo",
+			ttl:   10 * time.Second,
+			value: "new-value",
+			mockGet: func(ctx context.Context, key string) *redis.StringCmd {
+				cmd := redis.NewStringCmd(ctx)
+				cmd.SetErr(redis.Nil)
+				return cmd
+			},
+			mockSet: func(ctx context.Context, key string, value interface{}, ttl time.Duration) *redis.StatusCmd {
+				cmd := redis.NewStatusCmd(ctx)
+				cmd.SetVal("OK")
+				return cmd
+			},
+			wantValue: "new-value",
+			wantErr:   false,
+		},
+		{
+			name:  "should return error when Set fails after cache miss",
+			key:   "foo",
+			ttl:   3 * time.Second,
+			value: "new-value",
+			mockGet: func(ctx context.Context, key string) *redis.StringCmd {
+				cmd := redis.NewStringCmd(ctx)
+				cmd.SetErr(redis.Nil)
+				return cmd
+			},
+			mockSet: func(ctx context.Context, key string, value interface{}, ttl time.Duration) *redis.StatusCmd {
+				cmd := redis.NewStatusCmd(ctx)
+				cmd.SetErr(errors.New("mock: set failed"))
+				return cmd
+			},
+			wantValue:   nil,
+			wantErr:     true,
+			errContains: "set failed",
+		},
+		{
+			name:  "should return error when Get fails with non-cache-miss error",
+			key:   "foo",
+			ttl:   3 * time.Second,
+			value: "new-value",
+			mockGet: func(ctx context.Context, key string) *redis.StringCmd {
+				cmd := redis.NewStringCmd(ctx)
+				cmd.SetErr(errors.New("mock: network error"))
+				return cmd
+			},
+			mockSet: func(ctx context.Context, key string, value interface{}, ttl time.Duration) *redis.StatusCmd {
+				t.Fatal("expected Set not to be called when Get returns a real error")
+				return nil
+			},
+			wantValue:   nil,
+			wantErr:     true,
+			errContains: "network error",
+		},
+	}
 
-	t.Run("should return existing value if key is present", func(t *testing.T) {
-		key := "getorset_existing"
-		existingValue := "old_value"
-		newValue := "new_value"
-		ttl := 1 * time.Hour
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &RedisStore{
+				client: &mockRedisClient{
+					getFunc: tt.mockGet,
+					setFunc: tt.mockSet,
+				},
+			}
 
-		err := store.Set(ctx, key, existingValue, ttl)
-		require.NoError(t, err)
+			val, err := store.GetOrSet(context.Background(), tt.key, tt.ttl, tt.value)
 
-		retrievedValue, err := store.GetOrSet(ctx, key, ttl, newValue)
-		assert.NoError(t, err)
-		assert.Equal(t, existingValue, retrievedValue) // Should return the existing value
-	})
-
-	t.Run("should set and return new value if key is missing", func(t *testing.T) {
-		key := "getorset_missing"
-		newValue := "new_value"
-		ttl := 1 * time.Hour
-
-		retrievedValue, err := store.GetOrSet(ctx, key, ttl, newValue)
-		assert.NoError(t, err)
-		assert.Equal(t, newValue, retrievedValue)
-
-		// Verify it was actually set
-		storedValue, err := store.Get(ctx, key)
-		assert.NoError(t, err)
-		assert.Equal(t, newValue, storedValue)
-	})
-
-	t.Run("should set and return new value if key is expired", func(t *testing.T) {
-		key := "getorset_expired"
-		oldValue := "old_value"
-		newValue := "new_value"
-		shortTTL := 1 * time.Millisecond
-		longTTL := 1 * time.Hour
-
-		err := store.Set(ctx, key, oldValue, shortTTL)
-		require.NoError(t, err)
-		time.Sleep(5 * time.Millisecond) // Wait for expiration
-
-		retrievedValue, err := store.GetOrSet(ctx, key, longTTL, newValue)
-		assert.NoError(t, err)
-		assert.Equal(t, newValue, retrievedValue)
-
-		// Verify it was actually set with the new value and TTL
-		storedValue, err := store.Get(ctx, key)
-		assert.NoError(t, err)
-		assert.Equal(t, newValue, storedValue)
-	})
-
-	t.Run("should return error if Set fails (e.g., invalid TTL)", func(t *testing.T) {
-		key := "getorset_invalid_ttl"
-		newValue := "new_value"
-		invalidTTL := -1 * time.Second //
-		_, err := store.GetOrSet(ctx, key, invalidTTL, newValue)
-		assert.ErrorIs(t, err, multicache.ErrInvalidValue)
-	})
+			if tt.wantErr {
+				assert.Error(t, err, "expected error but got none")
+				if tt.errContains != "" {
+					assert.Contains(t, err.Error(), tt.errContains, "expected error message to contain "+tt.errContains)
+				}
+				assert.Nil(t, val, "expected value to be nil on error")
+			} else {
+				assert.NoError(t, err, "expected no error but got one")
+				assert.Equal(t, tt.wantValue, val, "expected returned value to match")
+			}
+		})
+	}
 }
 
 func TestRedisStore_Has(t *testing.T) {
-	store := setupRedisTestClient(t)
-	ctx := context.Background()
+	tests := []struct {
+		name       string
+		key        string
+		mockExists func(ctx context.Context, keys ...string) *redis.IntCmd
+		want       bool
+		wantErr    bool
+		errMessage string
+	}{
+		{
+			name: "should return true when key exists",
+			key:  "foo",
+			mockExists: func(ctx context.Context, keys ...string) *redis.IntCmd {
+				cmd := redis.NewIntCmd(ctx)
+				cmd.SetVal(1) // simulate key found
+				return cmd
+			},
+			want:    true,
+			wantErr: false,
+		},
+		{
+			name: "should return false when key does not exist",
+			key:  "missing",
+			mockExists: func(ctx context.Context, keys ...string) *redis.IntCmd {
+				cmd := redis.NewIntCmd(ctx)
+				cmd.SetVal(0) // simulate key missing
+				return cmd
+			},
+			want:    false,
+			wantErr: false,
+		},
+		{
+			name: "should return error when Exists fails",
+			key:  "foo",
+			mockExists: func(ctx context.Context, keys ...string) *redis.IntCmd {
+				cmd := redis.NewIntCmd(ctx)
+				cmd.SetErr(errors.New("mock: exists failed"))
+				return cmd
+			},
+			want:       false,
+			wantErr:    true,
+			errMessage: "expected error when Exists fails",
+		},
+	}
 
-	t.Run("should return true for existing key", func(t *testing.T) {
-		key := "has_key"
-		err := store.Set(ctx, key, "value", 0)
-		require.NoError(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &RedisStore{
+				client: &mockRedisClient{
+					existsFunc: tt.mockExists,
+				},
+			}
 
-		exists, err := store.Has(ctx, key)
-		assert.NoError(t, err)
-		assert.True(t, exists)
-	})
+			has, err := store.Has(context.Background(), tt.key)
 
-	t.Run("should return false for non-existing key", func(t *testing.T) {
-		exists, err := store.Has(ctx, "non_existent_key")
-		assert.NoError(t, err)
-		assert.False(t, exists)
-	})
-
-	t.Run("should return false for expired key", func(t *testing.T) {
-		key := "has_expired_key"
-		err := store.Set(ctx, key, "value", 1*time.Millisecond)
-		require.NoError(t, err)
-
-		time.Sleep(5 * time.Millisecond) // Wait for expiration
-
-		exists, err := store.Has(ctx, key)
-		assert.NoError(t, err)
-		assert.False(t, exists)
-	})
+			if tt.wantErr {
+				assert.Error(t, err, tt.errMessage)
+				assert.Contains(t, err.Error(), "exists failed", "expected error message to contain exists failed")
+				assert.False(t, has, "expected has to be false on error")
+			} else {
+				assert.NoError(t, err, "expected no error but got one")
+				assert.Equal(t, tt.want, has, "expected has to match")
+			}
+		})
+	}
 }
 
 func TestRedisStore_Set(t *testing.T) {
-	store := setupRedisTestClient(t)
-	ctx := context.Background()
+	tests := []struct {
+		name        string
+		key         string
+		value       any
+		ttl         time.Duration
+		mockSet     func(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.StatusCmd
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:  "should set value successfully with positive TTL",
+			key:   "foo",
+			value: "bar",
+			ttl:   10 * time.Second,
+			mockSet: func(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.StatusCmd {
+				cmd := redis.NewStatusCmd(ctx)
+				cmd.SetVal("OK")
+				return cmd
+			},
+			wantErr: false,
+		},
+		{
+			name:  "should set value successfully with 0 TTL (no expiration)",
+			key:   "foo",
+			value: "bar",
+			ttl:   0,
+			mockSet: func(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.StatusCmd {
+				cmd := redis.NewStatusCmd(ctx)
+				cmd.SetVal("OK")
+				return cmd
+			},
+			wantErr: false,
+		},
+		{
+			name:  "should return error when TTL is negative",
+			key:   "foo",
+			value: "bar",
+			ttl:   -1 * time.Second,
+			mockSet: func(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.StatusCmd {
+				t.Fatal("expected Set not to be called with negative TTL")
+				return nil
+			},
+			wantErr:     true,
+			errContains: multicache.ErrInvalidValue.Error(),
+		},
+		{
+			name:  "should return error when Set fails",
+			key:   "foo",
+			value: "bar",
+			ttl:   10 * time.Second,
+			mockSet: func(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.StatusCmd {
+				cmd := redis.NewStatusCmd(ctx)
+				cmd.SetErr(errors.New("mock: set command failed"))
+				return cmd
+			},
+			wantErr:     true,
+			errContains: "set command failed",
+		},
+	}
 
-	t.Run("should set a new key with no expiration", func(t *testing.T) {
-		key := "set_key_no_ttl"
-		value := "set_value_no_ttl"
-		err := store.Set(ctx, key, value, 0)
-		assert.NoError(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &RedisStore{
+				client: &mockRedisClient{
+					setFunc: tt.mockSet,
+				},
+			}
 
-		retrievedValue, err := store.Get(ctx, key)
-		assert.NoError(t, err)
-		assert.Equal(t, value, retrievedValue)
+			err := store.Set(context.Background(), tt.key, tt.value, tt.ttl)
 
-		// Verify TTL is -1 (no expiration)
-		ttl, err := store.client.TTL(ctx, key).Result()
-		assert.NoError(t, err)
-		assert.Equal(t, time.Duration(-1), ttl)
-	})
-
-	t.Run("should set a new key with expiration", func(t *testing.T) {
-		key := "set_key_with_ttl"
-		value := "set_value_with_ttl"
-		ttl := 5 * time.Second
-		err := store.Set(ctx, key, value, ttl)
-		assert.NoError(t, err)
-
-		retrievedValue, err := store.Get(ctx, key)
-		assert.NoError(t, err)
-		assert.Equal(t, value, retrievedValue)
-
-		// Verify TTL is set correctly (with some tolerance)
-		actualTTL, err := store.client.TTL(ctx, key).Result()
-		assert.NoError(t, err)
-		assert.InDelta(t, ttl.Seconds(), actualTTL.Seconds(), 1.0) // Allow 1 second difference
-	})
-
-	t.Run("should overwrite existing key", func(t *testing.T) {
-		key := "overwrite_key"
-		initialValue := "initial"
-		newValue := "new_value"
-
-		err := store.Set(ctx, key, initialValue, 0)
-		require.NoError(t, err)
-
-		err = store.Set(ctx, key, newValue, 0)
-		assert.NoError(t, err)
-
-		retrievedValue, err := store.Get(ctx, key)
-		assert.NoError(t, err)
-		assert.Equal(t, newValue, retrievedValue)
-	})
-
-	t.Run("should return error for negative TTL", func(t *testing.T) {
-		key := "invalid_ttl_key"
-		value := "invalid_ttl_value"
-		invalidTTL := -1 * time.Second
-
-		err := store.Set(ctx, key, value, invalidTTL)
-		assert.ErrorIs(t, err, multicache.ErrInvalidValue)
-
-		// Ensure key was not set
-		_, err = store.Get(ctx, key)
-		assert.ErrorIs(t, err, multicache.ErrCacheMiss)
-	})
+			if tt.wantErr {
+				assert.Error(t, err, "expected error but got none")
+				assert.Contains(t, err.Error(), tt.errContains, "expected error message to contain "+tt.errContains)
+			} else {
+				assert.NoError(t, err, "expected no error but got one")
+			}
+		})
+	}
 }
