@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -37,23 +38,52 @@ type Manager interface {
 }
 
 type managerImpl struct {
+	mu     sync.RWMutex
 	stores map[string]Store
 	store  Store
 }
 
 func NewManager(defaultStore string, stores map[string]Store) (Manager, error) {
-	store, exists := stores[defaultStore]
-	if !exists {
+	if len(stores) == 0 {
+		log.
+			Error().
+			Str("defaultStore", defaultStore).
+			Msg("cache manager: stores map is empty")
+
 		return nil, ErrInvalidDefaultStore
 	}
 
-	return &managerImpl{stores, store}, nil
+	store, exists := stores[defaultStore]
+	if !exists {
+		log.
+			Error().
+			Str("defaultStore", defaultStore).
+			Msgf("cache manager: default store %q not found", defaultStore)
+
+		return nil, ErrInvalidDefaultStore
+	}
+
+	return &managerImpl{
+		stores: stores,
+		store:  store,
+	}, nil
 }
 
 func (m *managerImpl) Store(alias string) Manager {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	store, exists := m.stores[alias]
+	if !exists {
+		log.
+			Error().
+			Str("alias", alias).
+			Msgf("cache manager: store with alias %q not found", alias)
+	}
+
 	return &managerImpl{
 		stores: m.stores,
-		store:  m.stores[alias],
+		store:  store,
 	}
 }
 
