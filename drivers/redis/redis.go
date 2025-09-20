@@ -3,6 +3,7 @@ package redis
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -146,5 +147,11 @@ func (r *RedisStore) Set(ctx context.Context, key string, value any, ttl time.Du
 		return multicache.ErrInvalidValue
 	}
 
-	return r.client.Set(ctx, key, value, ttl).Err()
+	// Marshal value to JSON to handle all Go types safely
+	data, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+
+	return r.client.Set(ctx, key, data, ttl).Err()
 }
