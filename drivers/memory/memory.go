@@ -187,26 +187,6 @@ func (m *MemoryStore) Get(ctx context.Context, key string) (any, error) {
 	return item.value, nil
 }
 
-// GetOrSet retrieves the value for the given key from the cache.
-//
-// Behavior:
-//   - If the key exists and is valid, the cached value is returned.
-//   - If the key is missing or expired, the provided value is stored with the given TTL
-//     and then returned.
-//   - If any error other than ErrCacheMiss occurs, it is returned directly.
-func (m *MemoryStore) GetOrSet(ctx context.Context, key string, ttl time.Duration, value any) (any, error) {
-	item, err := m.Get(ctx, key)
-	if err == nil {
-		return item, nil
-	}
-
-	if err := m.Set(ctx, key, value, ttl); err != nil {
-		return nil, err
-	}
-
-	return value, nil
-}
-
 // Has checks whether a key exists and is still valid in the cache.
 //
 // Behavior:

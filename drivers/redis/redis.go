@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"time"
 
@@ -107,26 +106,6 @@ func (r *RedisStore) Get(ctx context.Context, key string) (any, error) {
 	if err == redis.Nil {
 		return nil, multicache.ErrCacheMiss
 	} else if err != nil {
-		return nil, err
-	}
-
-	return value, nil
-}
-
-func (r *RedisStore) GetOrSet(ctx context.Context, key string, ttl time.Duration, value any) (any, error) {
-	// Try to get the value first
-	val, err := r.Get(ctx, key)
-	if err == nil {
-		return val, nil
-	}
-
-	// If it's not a cache miss, return the error
-	if !errors.Is(err, multicache.ErrCacheMiss) {
-		return nil, err
-	}
-
-	// If it's a cache miss, set the value
-	if err := r.Set(ctx, key, value, ttl); err != nil {
 		return nil, err
 	}
 

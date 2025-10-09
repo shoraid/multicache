@@ -37,11 +37,6 @@ func (m *MockStore) Get(ctx context.Context, key string) (any, error) {
 	return args.Get(0), args.Error(1)
 }
 
-func (m *MockStore) GetOrSet(ctx context.Context, key string, ttl time.Duration, value any) (any, error) {
-	args := m.Called(ctx, key, ttl, value)
-	return args.Get(0), args.Error(1)
-}
-
 func (m *MockStore) Has(ctx context.Context, key string) (bool, error) {
 	args := m.Called(ctx, key)
 	return args.Bool(0), args.Error(1)
