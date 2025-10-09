@@ -34,8 +34,8 @@ type Manager interface {
 
 	GetString(ctx context.Context, key string) (string, error)
 	GetStrings(ctx context.Context, key string) ([]string, error)
-	GetStringOrSet(ctx context.Context, key string, ttl time.Duration, defaultValue string) (string, error)
-	GetStringsOrSet(ctx context.Context, key string, ttl time.Duration, defaultValue []string) ([]string, error)
+	GetStringOrSet(ctx context.Context, key string, ttl time.Duration, defaultFn func() (string, error)) (string, error)
+	GetStringsOrSet(ctx context.Context, key string, ttl time.Duration, defaultFn func() ([]string, error)) ([]string, error)
 }
 
 type managerImpl struct {

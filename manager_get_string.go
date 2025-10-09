@@ -54,35 +54,49 @@ func (m *managerImpl) GetStrings(ctx context.Context, key string) ([]string, err
 	}
 }
 
-func (m *managerImpl) GetStringOrSet(ctx context.Context, key string, ttl time.Duration, defaultValue string) (string, error) {
+func (m *managerImpl) GetStringOrSet(ctx context.Context, key string, ttl time.Duration, defaultFn func() (string, error)) (string, error) {
 	val, err := m.GetString(ctx, key)
 	if err == nil {
 		return val, nil
 	}
 
 	if errors.Is(err, ErrCacheMiss) || errors.Is(err, ErrTypeMismatch) {
-		// If value not found or cast error, store default
-		if err := m.Set(ctx, key, defaultValue, ttl); err != nil {
-			return defaultValue, err
+		// Compute default lazily via callback
+		defVal, defErr := defaultFn()
+		if defErr != nil {
+			return "", defErr
 		}
-		return defaultValue, nil
+
+		// Try storing into cache
+		if setErr := m.Set(ctx, key, defVal, ttl); setErr != nil {
+			return defVal, setErr // still return computed value even if caching fails
+		}
+
+		return defVal, nil
 	}
 
 	return "", err
 }
 
-func (m *managerImpl) GetStringsOrSet(ctx context.Context, key string, ttl time.Duration, defaultValue []string) ([]string, error) {
+func (m *managerImpl) GetStringsOrSet(ctx context.Context, key string, ttl time.Duration, defaultFn func() ([]string, error)) ([]string, error) {
 	val, err := m.GetStrings(ctx, key)
 	if err == nil {
 		return val, nil
 	}
 
 	if errors.Is(err, ErrCacheMiss) || errors.Is(err, ErrTypeMismatch) {
-		// If value not found or cast error, store default
-		if err := m.Set(ctx, key, defaultValue, ttl); err != nil {
-			return defaultValue, err
+		// Compute default lazily via callback
+		defVal, defErr := defaultFn()
+		if defErr != nil {
+			return nil, defErr
 		}
-		return defaultValue, nil
+
+		// Try storing into cache
+		if setErr := m.Set(ctx, key, defVal, ttl); setErr != nil {
+			return defVal, setErr // still return computed value even if caching fails
+		}
+
+		return defVal, nil
 	}
 
 	return nil, err

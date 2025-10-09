@@ -201,6 +201,12 @@ func TestManager_GetStringOrSet(t *testing.T) {
 
 	key := "test-string-key"
 	defaultValue := "default-string"
+	defaultFn := func() (string, error) {
+		return defaultValue, nil
+	}
+	errorFn := func() (string, error) {
+		return "", errors.New("default function error")
+	}
 
 	tests := []struct {
 		name              string
@@ -208,6 +214,7 @@ func TestManager_GetStringOrSet(t *testing.T) {
 		mockGetVal        any
 		mockGetErr        error
 		mockSetErr        error
+		defaultFunc       func() (string, error)
 		expectedReturnVal string
 		expectedErr       error
 		expectSetCall     bool
@@ -218,6 +225,7 @@ func TestManager_GetStringOrSet(t *testing.T) {
 			mockGetVal:        "existing-string",
 			mockGetErr:        nil,
 			mockSetErr:        nil,
+			defaultFunc:       defaultFn,
 			expectedReturnVal: "existing-string",
 			expectedErr:       nil,
 			expectSetCall:     false,
@@ -228,6 +236,7 @@ func TestManager_GetStringOrSet(t *testing.T) {
 			mockGetVal:        nil,
 			mockGetErr:        ErrCacheMiss,
 			mockSetErr:        nil,
+			defaultFunc:       defaultFn,
 			expectedReturnVal: defaultValue,
 			expectedErr:       nil,
 			expectSetCall:     true,
@@ -238,6 +247,7 @@ func TestManager_GetStringOrSet(t *testing.T) {
 			mockGetVal:        123, // GetString will return ErrTypeMismatch
 			mockGetErr:        nil,
 			mockSetErr:        nil,
+			defaultFunc:       defaultFn,
 			expectedReturnVal: defaultValue,
 			expectedErr:       nil,
 			expectSetCall:     true,
@@ -248,15 +258,29 @@ func TestManager_GetStringOrSet(t *testing.T) {
 			mockGetVal:        nil,
 			mockGetErr:        errors.New("network error"),
 			mockSetErr:        nil,
+			defaultFunc:       defaultFn,
 			expectedReturnVal: "", // Default value for string
 			expectedErr:       errors.New("network error"),
-			expectSetCall:     false},
+			expectSetCall:     false,
+		},
+		{
+			name:              "should return error if default function fails",
+			key:               key,
+			mockGetVal:        nil,
+			mockGetErr:        ErrCacheMiss,
+			mockSetErr:        nil,
+			defaultFunc:       errorFn,
+			expectedReturnVal: "",
+			expectedErr:       errors.New("default function error"),
+			expectSetCall:     false, // Set should not be called if defaultFn fails
+		},
 		{
 			name:              "should return error if set fails after cache miss",
 			key:               key,
 			mockGetVal:        nil,
 			mockGetErr:        ErrCacheMiss,
 			mockSetErr:        errors.New("set operation failed"),
+			defaultFunc:       defaultFn,
 			expectedReturnVal: defaultValue,
 			expectedErr:       errors.New("set operation failed"),
 			expectSetCall:     true,
@@ -292,8 +316,7 @@ func TestManager_GetStringOrSet(t *testing.T) {
 					Once()
 			}
 
-			value, err := manager.GetStringOrSet(ctx, tt.key, ttl, defaultValue)
-
+			value, err := manager.GetStringOrSet(ctx, tt.key, ttl, tt.defaultFunc)
 			if tt.expectedErr != nil {
 				assert.Error(t, err, "expected error")
 				assert.Equal(t, tt.expectedErr.Error(), err.Error(), "expected correct error message")
@@ -313,6 +336,12 @@ func TestManager_GetStringsOrSet(t *testing.T) {
 
 	key := "test-strings-key"
 	defaultValue := []string{"default1", "default2"}
+	defaultFn := func() ([]string, error) {
+		return defaultValue, nil
+	}
+	errorFn := func() ([]string, error) {
+		return nil, errors.New("default function error")
+	}
 
 	tests := []struct {
 		name              string
@@ -320,6 +349,7 @@ func TestManager_GetStringsOrSet(t *testing.T) {
 		mockGetVal        any
 		mockGetErr        error
 		mockSetErr        error
+		defaultFunc       func() ([]string, error)
 		expectedReturnVal []string
 		expectedErr       error
 		expectSetCall     bool
@@ -330,6 +360,7 @@ func TestManager_GetStringsOrSet(t *testing.T) {
 			mockGetVal:        []string{"existing1", "existing2"},
 			mockGetErr:        nil,
 			mockSetErr:        nil,
+			defaultFunc:       defaultFn,
 			expectedReturnVal: []string{"existing1", "existing2"},
 			expectedErr:       nil,
 			expectSetCall:     false,
@@ -340,6 +371,7 @@ func TestManager_GetStringsOrSet(t *testing.T) {
 			mockGetVal:        nil,
 			mockGetErr:        ErrCacheMiss,
 			mockSetErr:        nil,
+			defaultFunc:       defaultFn,
 			expectedReturnVal: defaultValue,
 			expectedErr:       nil,
 			expectSetCall:     true,
@@ -350,6 +382,7 @@ func TestManager_GetStringsOrSet(t *testing.T) {
 			mockGetVal:        123, // GetStrings will return ErrTypeMismatch
 			mockGetErr:        nil,
 			mockSetErr:        nil,
+			defaultFunc:       defaultFn,
 			expectedReturnVal: defaultValue,
 			expectedErr:       nil,
 			expectSetCall:     true,
@@ -360,16 +393,29 @@ func TestManager_GetStringsOrSet(t *testing.T) {
 			mockGetVal:        nil,
 			mockGetErr:        errors.New("network error"),
 			mockSetErr:        nil,
-			expectedReturnVal: nil, // Default
+			defaultFunc:       defaultFn,
+			expectedReturnVal: nil, // Default value for []string
 			expectedErr:       errors.New("network error"),
 			expectSetCall:     false,
 		},
 		{
-			name:              "should return error if set fails after type mismatch",
+			name:              "should return error if default function fails",
 			key:               key,
-			mockGetVal:        123, // GetStrings will return ErrTypeMismatch
-			mockGetErr:        nil,
+			mockGetVal:        nil,
+			mockGetErr:        ErrCacheMiss,
+			mockSetErr:        nil,
+			defaultFunc:       errorFn,
+			expectedReturnVal: nil,
+			expectedErr:       errors.New("default function error"),
+			expectSetCall:     false, // Set should not be called if defaultFn fails
+		},
+		{
+			name:              "should return error if set fails after cache miss",
+			key:               key,
+			mockGetVal:        nil,
+			mockGetErr:        ErrCacheMiss,
 			mockSetErr:        errors.New("set operation failed"),
+			defaultFunc:       defaultFn,
 			expectedReturnVal: defaultValue,
 			expectedErr:       errors.New("set operation failed"),
 			expectSetCall:     true,
@@ -405,8 +451,7 @@ func TestManager_GetStringsOrSet(t *testing.T) {
 					Once()
 			}
 
-			value, err := manager.GetStringsOrSet(ctx, tt.key, ttl, defaultValue)
-
+			value, err := manager.GetStringsOrSet(ctx, tt.key, ttl, tt.defaultFunc)
 			if tt.expectedErr != nil {
 				assert.Error(t, err, "expected error")
 				assert.Equal(t, tt.expectedErr.Error(), err.Error(), "expected correct error message")
