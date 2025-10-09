@@ -1,4 +1,4 @@
-package multicache
+package multicachemock
 
 import (
 	"context"
