@@ -88,39 +88,79 @@ func TestManager_GetOrSet(t *testing.T) {
 	t.Parallel()
 
 	key := "test-key"
-	valueToSet := "new-value"
+	defaultValue := "default-value"
+	defaultFn := func() (any, error) {
+		return defaultValue, nil
+	}
+	errorFn := func() (any, error) {
+		return nil, errors.New("default function error")
+	}
 
 	tests := []struct {
 		name              string
 		key               string
-		mockReturnVal     any
-		mockReturnErr     error
+		mockGetVal        any
+		mockGetErr        error
+		mockSetErr        error
+		defaultFunc       func() (any, error)
 		expectedReturnVal any
 		expectedErr       error
+		expectSetCall     bool
 	}{
 		{
 			name:              "should return existing value if found",
 			key:               key,
-			mockReturnVal:     "existing-value",
-			mockReturnErr:     nil,
+			mockGetVal:        "existing-value",
+			mockGetErr:        nil,
+			mockSetErr:        nil,
+			defaultFunc:       defaultFn,
 			expectedReturnVal: "existing-value",
 			expectedErr:       nil,
+			expectSetCall:     false,
 		},
 		{
-			name:              "should set and return new value if not found",
+			name:              "should set and return default if cache miss",
 			key:               key,
-			mockReturnVal:     valueToSet,
-			mockReturnErr:     nil,
-			expectedReturnVal: valueToSet,
+			mockGetVal:        nil,
+			mockGetErr:        ErrCacheMiss,
+			mockSetErr:        nil,
+			defaultFunc:       defaultFn,
+			expectedReturnVal: defaultValue,
 			expectedErr:       nil,
+			expectSetCall:     true,
 		},
 		{
-			name:              "should return error when store returns error",
+			name:              "should return error if get fails with other error",
 			key:               key,
-			mockReturnVal:     nil,
-			mockReturnErr:     errors.New("store error"),
+			mockGetVal:        nil,
+			mockGetErr:        errors.New("network error"),
+			mockSetErr:        nil,
+			defaultFunc:       defaultFn,
 			expectedReturnVal: nil,
-			expectedErr:       errors.New("store error"),
+			expectedErr:       errors.New("network error"),
+			expectSetCall:     false,
+		},
+		{
+			name:              "should return error if default function fails",
+			key:               key,
+			mockGetVal:        nil,
+			mockGetErr:        ErrCacheMiss,
+			mockSetErr:        nil,
+			defaultFunc:       errorFn,
+			expectedReturnVal: nil,
+			expectedErr:       errors.New("default function error"),
+			expectSetCall:     false, // Set should not be called if defaultFn fails
+		},
+		{
+			name:              "should return error if set fails after cache miss",
+			key:               key,
+			mockGetVal:        nil,
+			mockGetErr:        ErrCacheMiss,
+			mockSetErr:        errors.New("set operation failed"),
+			defaultFunc:       defaultFn,
+			expectedReturnVal: defaultValue,
+			expectedErr:       errors.New("set operation failed"),
+			expectSetCall:     true,
 		},
 	}
 
@@ -137,18 +177,28 @@ func TestManager_GetOrSet(t *testing.T) {
 				store:  mockStore,
 			}
 
-			mockStore.ExpectedCalls = nil // reset calls for isolation
+			mockStore.ExpectedCalls = nil // Reset calls for isolation
+
+			// Mock the initial Get call
 			mockStore.
-				On("GetOrSet", ctx, tt.key, ttl, valueToSet).
-				Return(tt.mockReturnVal, tt.mockReturnErr).
+				On("Get", ctx, tt.key).
+				Return(tt.mockGetVal, tt.mockGetErr).
 				Once()
 
-			value, err := manager.GetOrSet(ctx, tt.key, ttl, valueToSet)
+			// Mock the Set call if expected
+			if tt.expectSetCall {
+				mockStore.
+					On("Set", ctx, tt.key, tt.expectedReturnVal, ttl).
+					Return(tt.mockSetErr).
+					Once()
+			}
+
+			value, err := manager.GetOrSet(ctx, tt.key, ttl, tt.defaultFunc)
 
 			if tt.expectedErr != nil {
 				assert.Error(t, err, "expected error")
 				assert.Equal(t, tt.expectedErr.Error(), err.Error(), "expected correct error message")
-				assert.Nil(t, value, "expected nil value on error")
+				assert.Equal(t, tt.expectedReturnVal, value, "expected default value on error")
 			} else {
 				assert.NoError(t, err, "expected no error")
 				assert.Equal(t, tt.expectedReturnVal, value, "expected correct value")
