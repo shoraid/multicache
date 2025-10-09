@@ -68,52 +68,73 @@ func (m *managerImpl) GetInts(ctx context.Context, key string) ([]int, error) {
 	}
 }
 
-func (m *managerImpl) GetIntOrSet(ctx context.Context, key string, ttl time.Duration, defaultValue int) (int, error) {
+func (m *managerImpl) GetIntOrSet(ctx context.Context, key string, ttl time.Duration, defaultFn func() (int, error)) (int, error) {
 	val, err := m.GetInt(ctx, key)
 	if err == nil {
 		return val, nil
 	}
 
 	if errors.Is(err, ErrCacheMiss) || errors.Is(err, ErrTypeMismatch) {
-		// If value not found or cast error, store default
-		if err := m.Set(ctx, key, defaultValue, ttl); err != nil {
-			return defaultValue, err
+		// Compute default lazily via callback
+		defVal, defErr := defaultFn()
+		if defErr != nil {
+			return 0, defErr
 		}
-		return defaultValue, nil
+
+		// Try storing into cache
+		if setErr := m.Set(ctx, key, defVal, ttl); setErr != nil {
+			return defVal, setErr // still return computed value even if caching fails
+		}
+
+		return defVal, nil
 	}
 
 	return 0, err
 }
 
-func (m *managerImpl) GetInt64OrSet(ctx context.Context, key string, ttl time.Duration, defaultValue int64) (int64, error) {
+func (m *managerImpl) GetInt64OrSet(ctx context.Context, key string, ttl time.Duration, defaultFn func() (int64, error)) (int64, error) {
 	val, err := m.GetInt64(ctx, key)
 	if err == nil {
 		return val, nil
 	}
 
 	if errors.Is(err, ErrCacheMiss) || errors.Is(err, ErrTypeMismatch) {
-		// If value not found or cast error, store default
-		if err := m.Set(ctx, key, defaultValue, ttl); err != nil {
-			return defaultValue, err
+		// Compute default lazily via callback
+		defVal, defErr := defaultFn()
+		if defErr != nil {
+			return 0, defErr
 		}
-		return defaultValue, nil
+
+		// Try storing into cache
+		if setErr := m.Set(ctx, key, defVal, ttl); setErr != nil {
+			return defVal, setErr // still return computed value even if caching fails
+		}
+
+		return defVal, nil
 	}
 
 	return 0, err
 }
 
-func (m *managerImpl) GetIntsOrSet(ctx context.Context, key string, ttl time.Duration, defaultValue []int) ([]int, error) {
+func (m *managerImpl) GetIntsOrSet(ctx context.Context, key string, ttl time.Duration, defaultFn func() ([]int, error)) ([]int, error) {
 	val, err := m.GetInts(ctx, key)
 	if err == nil {
 		return val, nil
 	}
 
 	if errors.Is(err, ErrCacheMiss) || errors.Is(err, ErrTypeMismatch) {
-		// If value not found or cast error, store default
-		if err := m.Set(ctx, key, defaultValue, ttl); err != nil {
-			return defaultValue, err
+		// Compute default lazily via callback
+		defVal, defErr := defaultFn()
+		if defErr != nil {
+			return nil, defErr
 		}
-		return defaultValue, nil
+
+		// Try storing into cache
+		if setErr := m.Set(ctx, key, defVal, ttl); setErr != nil {
+			return defVal, setErr // still return computed value even if caching fails
+		}
+
+		return defVal, nil
 	}
 
 	return nil, err

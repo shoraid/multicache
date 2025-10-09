@@ -28,9 +28,9 @@ type Manager interface {
 	GetInt(ctx context.Context, key string) (int, error)
 	GetInt64(ctx context.Context, key string) (int64, error)
 	GetInts(ctx context.Context, key string) ([]int, error)
-	GetIntOrSet(ctx context.Context, key string, ttl time.Duration, defaultValue int) (int, error)
-	GetInt64OrSet(ctx context.Context, key string, ttl time.Duration, defaultValue int64) (int64, error)
-	GetIntsOrSet(ctx context.Context, key string, ttl time.Duration, defaultValue []int) ([]int, error)
+	GetIntOrSet(ctx context.Context, key string, ttl time.Duration, defaultFn func() (int, error)) (int, error)
+	GetInt64OrSet(ctx context.Context, key string, ttl time.Duration, defaultFn func() (int64, error)) (int64, error)
+	GetIntsOrSet(ctx context.Context, key string, ttl time.Duration, defaultFn func() ([]int, error)) ([]int, error)
 
 	GetString(ctx context.Context, key string) (string, error)
 	GetStrings(ctx context.Context, key string) ([]string, error)
