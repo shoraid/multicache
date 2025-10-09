@@ -2,7 +2,6 @@ package memory
 
 import (
 	"context"
-	"errors"
 	"regexp"
 	"strings"
 	"sync"
@@ -119,6 +118,15 @@ func (m *MemoryStore) Delete(ctx context.Context, key string) error {
 //   - On large caches, this can be slow and should be used sparingly
 //     (e.g., for administrative cleanup rather than frequent operations).
 func (m *MemoryStore) DeleteByPattern(ctx context.Context, pattern string) error {
+	// Validate only if pattern doesn't contain '*' (wildcard)
+	// So patterns like "*" or "*:apple" are allowed,
+	// but invalid raw regex like "[" are caught.
+	if !strings.Contains(pattern, "*") {
+		if _, err := regexp.Compile(pattern); err != nil {
+			return err
+		}
+	}
+
 	regexPattern := "^" + regexp.QuoteMeta(pattern) + "$"
 	regexPattern = strings.ReplaceAll(regexPattern, "\\*", ".*")
 
@@ -190,10 +198,6 @@ func (m *MemoryStore) GetOrSet(ctx context.Context, key string, ttl time.Duratio
 	item, err := m.Get(ctx, key)
 	if err == nil {
 		return item, nil
-	}
-
-	if !errors.Is(err, multicache.ErrCacheMiss) {
-		return nil, err
 	}
 
 	if err := m.Set(ctx, key, value, ttl); err != nil {
