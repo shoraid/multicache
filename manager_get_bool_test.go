@@ -91,11 +91,18 @@ func TestManager_GetBool(t *testing.T) {
 		})
 	}
 }
+
 func TestManager_GetBoolOrSet(t *testing.T) {
 	t.Parallel()
 
 	key := "test-bool-key"
 	defaultValue := true
+	defaultFn := func() (bool, error) {
+		return defaultValue, nil
+	}
+	errorFn := func() (bool, error) {
+		return false, errors.New("default function error")
+	}
 
 	tests := []struct {
 		name              string
@@ -103,6 +110,7 @@ func TestManager_GetBoolOrSet(t *testing.T) {
 		mockGetVal        any
 		mockGetErr        error
 		mockSetErr        error
+		defaultFunc       func() (bool, error)
 		expectedReturnVal bool
 		expectedErr       error
 		expectSetCall     bool
@@ -113,6 +121,7 @@ func TestManager_GetBoolOrSet(t *testing.T) {
 			mockGetVal:        true,
 			mockGetErr:        nil,
 			mockSetErr:        nil,
+			defaultFunc:       defaultFn,
 			expectedReturnVal: true,
 			expectedErr:       nil,
 			expectSetCall:     false,
@@ -123,6 +132,7 @@ func TestManager_GetBoolOrSet(t *testing.T) {
 			mockGetVal:        false,
 			mockGetErr:        nil,
 			mockSetErr:        nil,
+			defaultFunc:       defaultFn,
 			expectedReturnVal: false,
 			expectedErr:       nil,
 			expectSetCall:     false,
@@ -133,6 +143,7 @@ func TestManager_GetBoolOrSet(t *testing.T) {
 			mockGetVal:        nil,
 			mockGetErr:        ErrCacheMiss,
 			mockSetErr:        nil,
+			defaultFunc:       defaultFn,
 			expectedReturnVal: defaultValue,
 			expectedErr:       nil,
 			expectSetCall:     true,
@@ -143,6 +154,7 @@ func TestManager_GetBoolOrSet(t *testing.T) {
 			mockGetVal:        "not a bool",
 			mockGetErr:        nil, // GetBool will return ErrTypeMismatch
 			mockSetErr:        nil,
+			defaultFunc:       defaultFn,
 			expectedReturnVal: defaultValue,
 			expectedErr:       nil,
 			expectSetCall:     true,
@@ -153,9 +165,21 @@ func TestManager_GetBoolOrSet(t *testing.T) {
 			mockGetVal:        nil,
 			mockGetErr:        errors.New("network error"),
 			mockSetErr:        nil,
+			defaultFunc:       defaultFn,
 			expectedReturnVal: false, // Default value for bool
 			expectedErr:       errors.New("network error"),
 			expectSetCall:     false,
+		},
+		{
+			name:              "should return error if default function fails",
+			key:               key,
+			mockGetVal:        nil,
+			mockGetErr:        ErrCacheMiss,
+			mockSetErr:        nil,
+			defaultFunc:       errorFn,
+			expectedReturnVal: false,
+			expectedErr:       errors.New("default function error"),
+			expectSetCall:     false, // Set should not be called if defaultFn fails
 		},
 		{
 			name:              "should return error if set fails after cache miss",
@@ -163,6 +187,7 @@ func TestManager_GetBoolOrSet(t *testing.T) {
 			mockGetVal:        nil,
 			mockGetErr:        ErrCacheMiss,
 			mockSetErr:        errors.New("set operation failed"),
+			defaultFunc:       defaultFn,
 			expectedReturnVal: defaultValue,
 			expectedErr:       errors.New("set operation failed"),
 			expectSetCall:     true,
@@ -198,8 +223,7 @@ func TestManager_GetBoolOrSet(t *testing.T) {
 					Once()
 			}
 
-			value, err := manager.GetBoolOrSet(ctx, tt.key, ttl, defaultValue)
-
+			value, err := manager.GetBoolOrSet(ctx, tt.key, ttl, tt.defaultFunc)
 			if tt.expectedErr != nil {
 				assert.Error(t, err, "expected error")
 				assert.Equal(t, tt.expectedErr.Error(), err.Error(), "expected correct error message")

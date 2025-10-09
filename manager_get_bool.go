@@ -22,18 +22,30 @@ func (m *managerImpl) GetBool(ctx context.Context, key string) (bool, error) {
 	return boolVal, nil
 }
 
-func (m *managerImpl) GetBoolOrSet(ctx context.Context, key string, ttl time.Duration, defaultValue bool) (bool, error) {
+func (m *managerImpl) GetBoolOrSet(
+	ctx context.Context,
+	key string,
+	ttl time.Duration,
+	defaultFn func() (bool, error),
+) (bool, error) {
 	val, err := m.GetBool(ctx, key)
 	if err == nil {
 		return val, nil
 	}
 
 	if errors.Is(err, ErrCacheMiss) || errors.Is(err, ErrTypeMismatch) {
-		// If value not found or cast error, store default
-		if err := m.Set(ctx, key, defaultValue, ttl); err != nil {
-			return defaultValue, err
+		// Compute default lazily via callback
+		defVal, defErr := defaultFn()
+		if defErr != nil {
+			return false, defErr
 		}
-		return defaultValue, nil
+
+		// Try storing into cache
+		if setErr := m.Set(ctx, key, defVal, ttl); setErr != nil {
+			return defVal, setErr // still return computed value even if caching fails
+		}
+
+		return defVal, nil
 	}
 
 	return false, err

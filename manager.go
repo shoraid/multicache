@@ -23,7 +23,7 @@ type Manager interface {
 	Set(ctx context.Context, key string, value any, ttl time.Duration) error
 
 	GetBool(ctx context.Context, key string) (bool, error)
-	GetBoolOrSet(ctx context.Context, key string, ttl time.Duration, defaultValue bool) (bool, error)
+	GetBoolOrSet(ctx context.Context, key string, ttl time.Duration, defaultFn func() (bool, error)) (bool, error)
 
 	GetInt(ctx context.Context, key string) (int, error)
 	GetInt64(ctx context.Context, key string) (int64, error)
