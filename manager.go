@@ -1,66 +1,57 @@
 package multicache
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"sync"
-	"time"
+
+	"github.com/shoraid/multicache/contract"
 )
-
-type Manager interface {
-	Store(alias string) Manager
-
-	Clear(ctx context.Context) error
-	Delete(ctx context.Context, key string) error
-	DeleteByPattern(ctx context.Context, pattern string) error
-	DeleteMany(ctx context.Context, keys ...string) error
-	DeleteManyByPattern(ctx context.Context, patterns ...string) error
-
-	Get(ctx context.Context, key string) (any, error)
-	GetOrSet(ctx context.Context, key string, ttl time.Duration, defaultFn func() (any, error)) (any, error)
-	Has(ctx context.Context, key string) (bool, error)
-	Set(ctx context.Context, key string, value any, ttl time.Duration) error
-
-	GetBool(ctx context.Context, key string) (bool, error)
-	GetBoolOrSet(ctx context.Context, key string, ttl time.Duration, defaultFn func() (bool, error)) (bool, error)
-
-	GetInt(ctx context.Context, key string) (int, error)
-	GetInt64(ctx context.Context, key string) (int64, error)
-	GetInts(ctx context.Context, key string) ([]int, error)
-	GetIntOrSet(ctx context.Context, key string, ttl time.Duration, defaultFn func() (int, error)) (int, error)
-	GetInt64OrSet(ctx context.Context, key string, ttl time.Duration, defaultFn func() (int64, error)) (int64, error)
-	GetIntsOrSet(ctx context.Context, key string, ttl time.Duration, defaultFn func() ([]int, error)) ([]int, error)
-
-	GetString(ctx context.Context, key string) (string, error)
-	GetStrings(ctx context.Context, key string) ([]string, error)
-	GetStringOrSet(ctx context.Context, key string, ttl time.Duration, defaultFn func() (string, error)) (string, error)
-	GetStringsOrSet(ctx context.Context, key string, ttl time.Duration, defaultFn func() ([]string, error)) ([]string, error)
-}
 
 type managerImpl struct {
 	mu     sync.RWMutex
-	stores map[string]Store
-	store  Store
+	stores map[string]contract.Store
+	store  contract.Store
 }
 
-func NewManager(defaultStore string, stores map[string]Store) (Manager, error) {
-	if len(stores) == 0 {
-		return nil, ErrInvalidDefaultStore
-	}
-
-	store, exists := stores[defaultStore]
-	if !exists {
-		return nil, ErrInvalidDefaultStore
-	}
-
+func NewManager() contract.Manager {
 	return &managerImpl{
-		stores: stores,
-		store:  store,
-	}, nil
+		stores: make(map[string]contract.Store),
+	}
 }
 
-func (m *managerImpl) Store(alias string) Manager {
+func (m *managerImpl) Register(alias string, store contract.Store) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if len(m.stores) == 0 {
+		m.store = store
+	}
+
+	if _, exists := m.stores[alias]; exists {
+		return ErrStoreAlreadyRegistered
+	}
+
+	m.stores[alias] = store
+
+	return nil
+}
+
+func (m *managerImpl) SetDefault(alias string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	store, exists := m.stores[alias]
+	if !exists {
+		return ErrInvalidDefaultStore
+	}
+
+	m.store = store
+
+	return nil
+}
+
+func (m *managerImpl) Store(alias string) contract.Manager {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 

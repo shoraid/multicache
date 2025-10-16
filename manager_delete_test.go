@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/shoraid/multicache/contract"
 	multicachemock "github.com/shoraid/multicache/mock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -38,7 +39,7 @@ func TestManager_Clear(t *testing.T) {
 			mockStore := new(multicachemock.MockStore)
 
 			manager := &managerImpl{
-				stores: map[string]Store{"default": mockStore},
+				stores: map[string]contract.Store{"default": mockStore},
 				store:  mockStore,
 			}
 
@@ -95,7 +96,7 @@ func TestManager_Delete(t *testing.T) {
 			mockStore := new(multicachemock.MockStore)
 
 			manager := &managerImpl{
-				stores: map[string]Store{"default": mockStore},
+				stores: map[string]contract.Store{"default": mockStore},
 				store:  mockStore,
 			}
 
@@ -153,7 +154,7 @@ func TestManager_DeleteByPattern(t *testing.T) {
 			mockStore := new(multicachemock.MockStore)
 
 			manager := &managerImpl{
-				stores: map[string]Store{"default": mockStore},
+				stores: map[string]contract.Store{"default": mockStore},
 				store:  mockStore,
 			}
 
@@ -207,7 +208,7 @@ func TestManager_DeleteMany(t *testing.T) {
 			mockStore := new(multicachemock.MockStore)
 
 			manager := &managerImpl{
-				stores: map[string]Store{"default": mockStore},
+				stores: map[string]contract.Store{"default": mockStore},
 				store:  mockStore,
 			}
 
@@ -276,7 +277,7 @@ func TestManager_DeleteManyByPattern(t *testing.T) {
 			mockStore := new(multicachemock.MockStore)
 
 			manager := &managerImpl{
-				stores: map[string]Store{"default": mockStore},
+				stores: map[string]contract.Store{"default": mockStore},
 				store:  mockStore,
 			}
 
