@@ -18,6 +18,15 @@ type Manager interface {
 	// a no-op manager or panic, depending on configuration.
 	Store(alias string) Manager
 
+	// Register adds a new store with the given alias.
+	// The first registered store becomes the default.
+	// Returns an error if the alias is already registered.
+	Register(alias string, store Store) error
+
+	// SetDefault sets the store with the given alias as the default store.
+	// Returns an error if the alias has not been registered.
+	SetDefault(alias string) error
+
 	// Clear removes all keys and values from the current store.
 	// It should not return an error if the store is already empty.
 	Clear(ctx context.Context) error

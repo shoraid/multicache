@@ -14,20 +14,41 @@ type managerImpl struct {
 	store  contract.Store
 }
 
-func NewManager(defaultStore string, stores map[string]contract.Store) (contract.Manager, error) {
-	if len(stores) == 0 {
-		return nil, ErrInvalidDefaultStore
-	}
-
-	store, exists := stores[defaultStore]
-	if !exists {
-		return nil, ErrInvalidDefaultStore
-	}
-
+func NewManager() contract.Manager {
 	return &managerImpl{
-		stores: stores,
-		store:  store,
-	}, nil
+		stores: make(map[string]contract.Store),
+	}
+}
+
+func (m *managerImpl) Register(alias string, store contract.Store) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if len(m.stores) == 0 {
+		m.store = store
+	}
+
+	if _, exists := m.stores[alias]; exists {
+		return ErrStoreAlreadyRegistered
+	}
+
+	m.stores[alias] = store
+
+	return nil
+}
+
+func (m *managerImpl) SetDefault(alias string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	store, exists := m.stores[alias]
+	if !exists {
+		return ErrInvalidDefaultStore
+	}
+
+	m.store = store
+
+	return nil
 }
 
 func (m *managerImpl) Store(alias string) contract.Manager {
