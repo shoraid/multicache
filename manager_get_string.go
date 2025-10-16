@@ -2,7 +2,6 @@ package multicache
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"time"
 )
@@ -13,16 +12,12 @@ func (m *managerImpl) GetString(ctx context.Context, key string) (string, error)
 		return "", err
 	}
 
-	switch v := val.(type) {
-	case string:
-		return v, nil
-
-	case []byte:
-		return string(v), nil
-
-	default:
+	stringVal, err := toString(val)
+	if err != nil {
 		return "", ErrTypeMismatch
 	}
+
+	return stringVal, nil
 }
 
 func (m *managerImpl) GetStrings(ctx context.Context, key string) ([]string, error) {
@@ -31,27 +26,12 @@ func (m *managerImpl) GetStrings(ctx context.Context, key string) ([]string, err
 		return nil, err
 	}
 
-	switch v := val.(type) {
-	case string:
-		var data []string
-		if err := json.Unmarshal([]byte(v), &data); err != nil {
-			return nil, ErrTypeMismatch
-		}
-		return data, nil
-
-	case []byte:
-		var data []string
-		if err := json.Unmarshal(v, &data); err != nil {
-			return nil, ErrTypeMismatch
-		}
-		return data, nil
-
-	case []string:
-		return v, nil
-
-	default:
+	stringsVal, err := toStrings(val)
+	if err != nil {
 		return nil, ErrTypeMismatch
 	}
+
+	return stringsVal, nil
 }
 
 func (m *managerImpl) GetStringOrSet(ctx context.Context, key string, ttl time.Duration, defaultFn func() (string, error)) (string, error) {
@@ -61,18 +41,7 @@ func (m *managerImpl) GetStringOrSet(ctx context.Context, key string, ttl time.D
 	}
 
 	if errors.Is(err, ErrCacheMiss) || errors.Is(err, ErrTypeMismatch) {
-		// Compute default lazily via callback
-		defVal, defErr := defaultFn()
-		if defErr != nil {
-			return "", defErr
-		}
-
-		// Try storing into cache
-		if setErr := m.Set(ctx, key, defVal, ttl); setErr != nil {
-			return defVal, setErr // still return computed value even if caching fails
-		}
-
-		return defVal, nil
+		return getOrSetDefault(ctx, m, key, ttl, defaultFn)
 	}
 
 	return "", err
@@ -85,18 +54,7 @@ func (m *managerImpl) GetStringsOrSet(ctx context.Context, key string, ttl time.
 	}
 
 	if errors.Is(err, ErrCacheMiss) || errors.Is(err, ErrTypeMismatch) {
-		// Compute default lazily via callback
-		defVal, defErr := defaultFn()
-		if defErr != nil {
-			return nil, defErr
-		}
-
-		// Try storing into cache
-		if setErr := m.Set(ctx, key, defVal, ttl); setErr != nil {
-			return defVal, setErr // still return computed value even if caching fails
-		}
-
-		return defVal, nil
+		return getOrSetDefault(ctx, m, key, ttl, defaultFn)
 	}
 
 	return nil, err

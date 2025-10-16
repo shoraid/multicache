@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"time"
-
-	"github.com/spf13/cast"
 )
 
 func (m *managerImpl) GetBool(ctx context.Context, key string) (bool, error) {
@@ -14,7 +12,7 @@ func (m *managerImpl) GetBool(ctx context.Context, key string) (bool, error) {
 		return false, err
 	}
 
-	boolVal, err := cast.ToBoolE(val)
+	boolVal, err := toBool(val)
 	if err != nil {
 		return false, ErrTypeMismatch
 	}
@@ -34,18 +32,7 @@ func (m *managerImpl) GetBoolOrSet(
 	}
 
 	if errors.Is(err, ErrCacheMiss) || errors.Is(err, ErrTypeMismatch) {
-		// Compute default lazily via callback
-		defVal, defErr := defaultFn()
-		if defErr != nil {
-			return false, defErr
-		}
-
-		// Try storing into cache
-		if setErr := m.Set(ctx, key, defVal, ttl); setErr != nil {
-			return defVal, setErr // still return computed value even if caching fails
-		}
-
-		return defVal, nil
+		return getOrSetDefault(ctx, m, key, ttl, defaultFn)
 	}
 
 	return false, err

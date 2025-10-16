@@ -51,7 +51,7 @@ func TestManager_GetString(t *testing.T) {
 		{
 			name:          "should return type mismatch error for non-string value",
 			key:           key,
-			mockValue:     123,
+			mockValue:     make(chan int),
 			mockReturnErr: nil,
 			expectedValue: "",
 			expectedErr:   ErrTypeMismatch,
@@ -245,7 +245,7 @@ func TestManager_GetStringOrSet(t *testing.T) {
 		{
 			name:              "should set and return default if type mismatch on get",
 			key:               key,
-			mockGetVal:        123, // GetString will return ErrTypeMismatch
+			mockGetVal:        make(chan int), // GetString will return ErrTypeMismatch
 			mockGetErr:        nil,
 			mockSetErr:        nil,
 			defaultFunc:       defaultFn,

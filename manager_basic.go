@@ -17,18 +17,7 @@ func (m *managerImpl) GetOrSet(ctx context.Context, key string, ttl time.Duratio
 	}
 
 	if errors.Is(err, ErrCacheMiss) {
-		// Compute default lazily via callback
-		defVal, defErr := defaultFn()
-		if defErr != nil {
-			return nil, defErr
-		}
-
-		// Try storing into cache
-		if setErr := m.Set(ctx, key, defVal, ttl); setErr != nil {
-			return defVal, setErr // still return computed value even if caching fails
-		}
-
-		return defVal, nil
+		return getOrSetDefault(ctx, m, key, ttl, defaultFn)
 	}
 
 	return nil, err

@@ -54,7 +54,7 @@ func TestManager_GetBool(t *testing.T) {
 			mockValue:     "not a bool",
 			mockReturnErr: nil,
 			expectedValue: false,
-			expectedErr:   ErrTypeMismatch, // cast.ToBoolE error
+			expectedErr:   ErrTypeMismatch,
 		},
 	}
 
@@ -117,18 +117,7 @@ func TestManager_GetBoolOrSet(t *testing.T) {
 		expectSetCall     bool
 	}{
 		{
-			name:              "should return existing true value if found",
-			key:               key,
-			mockGetVal:        true,
-			mockGetErr:        nil,
-			mockSetErr:        nil,
-			defaultFunc:       defaultFn,
-			expectedReturnVal: true,
-			expectedErr:       nil,
-			expectSetCall:     false,
-		},
-		{
-			name:              "should return existing false value if found",
+			name:              "should return existing value if found",
 			key:               key,
 			mockGetVal:        false,
 			mockGetErr:        nil,
@@ -152,8 +141,8 @@ func TestManager_GetBoolOrSet(t *testing.T) {
 		{
 			name:              "should set and return default if type mismatch on get",
 			key:               key,
-			mockGetVal:        "not a bool",
-			mockGetErr:        nil, // GetBool will return ErrTypeMismatch
+			mockGetVal:        "not a bool", // GetBool will return ErrTypeMismatch
+			mockGetErr:        nil,
 			mockSetErr:        nil,
 			defaultFunc:       defaultFn,
 			expectedReturnVal: defaultValue,

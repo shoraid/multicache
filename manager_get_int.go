@@ -2,11 +2,8 @@ package multicache
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"time"
-
-	"github.com/spf13/cast"
 )
 
 func (m *managerImpl) GetInt(ctx context.Context, key string) (int, error) {
@@ -15,7 +12,7 @@ func (m *managerImpl) GetInt(ctx context.Context, key string) (int, error) {
 		return 0, err
 	}
 
-	intVal, err := cast.ToIntE(val)
+	intVal, err := toInt(val)
 	if err != nil {
 		return 0, ErrTypeMismatch
 	}
@@ -29,7 +26,7 @@ func (m *managerImpl) GetInt64(ctx context.Context, key string) (int64, error) {
 		return 0, err
 	}
 
-	intVal, err := cast.ToInt64E(val)
+	intVal, err := toInt64(val)
 	if err != nil {
 		return 0, ErrTypeMismatch
 	}
@@ -43,29 +40,12 @@ func (m *managerImpl) GetInts(ctx context.Context, key string) ([]int, error) {
 		return nil, err
 	}
 
-	switch v := val.(type) {
-	case string:
-		var data []int
-		if err := json.Unmarshal([]byte(v), &data); err != nil {
-			return nil, ErrTypeMismatch
-		}
-
-		return data, nil
-
-	case []byte:
-		var data []int
-		if err := json.Unmarshal(v, &data); err != nil {
-			return nil, ErrTypeMismatch
-		}
-
-		return data, nil
-
-	case []int:
-		return v, nil
-
-	default:
+	intsVal, err := toInts(val)
+	if err != nil {
 		return nil, ErrTypeMismatch
 	}
+
+	return intsVal, nil
 }
 
 func (m *managerImpl) GetIntOrSet(ctx context.Context, key string, ttl time.Duration, defaultFn func() (int, error)) (int, error) {
@@ -75,18 +55,7 @@ func (m *managerImpl) GetIntOrSet(ctx context.Context, key string, ttl time.Dura
 	}
 
 	if errors.Is(err, ErrCacheMiss) || errors.Is(err, ErrTypeMismatch) {
-		// Compute default lazily via callback
-		defVal, defErr := defaultFn()
-		if defErr != nil {
-			return 0, defErr
-		}
-
-		// Try storing into cache
-		if setErr := m.Set(ctx, key, defVal, ttl); setErr != nil {
-			return defVal, setErr // still return computed value even if caching fails
-		}
-
-		return defVal, nil
+		return getOrSetDefault(ctx, m, key, ttl, defaultFn)
 	}
 
 	return 0, err
@@ -99,18 +68,7 @@ func (m *managerImpl) GetInt64OrSet(ctx context.Context, key string, ttl time.Du
 	}
 
 	if errors.Is(err, ErrCacheMiss) || errors.Is(err, ErrTypeMismatch) {
-		// Compute default lazily via callback
-		defVal, defErr := defaultFn()
-		if defErr != nil {
-			return 0, defErr
-		}
-
-		// Try storing into cache
-		if setErr := m.Set(ctx, key, defVal, ttl); setErr != nil {
-			return defVal, setErr // still return computed value even if caching fails
-		}
-
-		return defVal, nil
+		return getOrSetDefault(ctx, m, key, ttl, defaultFn)
 	}
 
 	return 0, err
@@ -123,18 +81,7 @@ func (m *managerImpl) GetIntsOrSet(ctx context.Context, key string, ttl time.Dur
 	}
 
 	if errors.Is(err, ErrCacheMiss) || errors.Is(err, ErrTypeMismatch) {
-		// Compute default lazily via callback
-		defVal, defErr := defaultFn()
-		if defErr != nil {
-			return nil, defErr
-		}
-
-		// Try storing into cache
-		if setErr := m.Set(ctx, key, defVal, ttl); setErr != nil {
-			return defVal, setErr // still return computed value even if caching fails
-		}
-
-		return defVal, nil
+		return getOrSetDefault(ctx, m, key, ttl, defaultFn)
 	}
 
 	return nil, err

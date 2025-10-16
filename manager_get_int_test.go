@@ -46,7 +46,7 @@ func TestManager_GetInt(t *testing.T) {
 			mockValue:     "not an int",
 			mockReturnErr: nil,
 			expectedValue: 0,
-			expectedErr:   ErrTypeMismatch, // cast.ToIntE error
+			expectedErr:   ErrTypeMismatch,
 		},
 	}
 
@@ -119,7 +119,7 @@ func TestManager_GetInt64(t *testing.T) {
 			mockValue:     "not an int64",
 			mockReturnErr: nil,
 			expectedValue: 0,
-			expectedErr:   ErrTypeMismatch, // cast.ToInt64E error
+			expectedErr:   ErrTypeMismatch,
 		},
 	}
 
@@ -318,8 +318,8 @@ func TestManager_GetIntOrSet(t *testing.T) {
 		{
 			name:              "should set and return default if type mismatch on get",
 			key:               key,
-			mockGetVal:        "not an int",
-			mockGetErr:        nil, // GetInt will return ErrTypeMismatch
+			mockGetVal:        "not an int", // GetInt will return ErrTypeMismatch
+			mockGetErr:        nil,
 			mockSetErr:        nil,
 			defaultFunc:       defaultFn,
 			expectedReturnVal: defaultValue,
@@ -333,7 +333,7 @@ func TestManager_GetIntOrSet(t *testing.T) {
 			mockGetErr:        errors.New("network error"),
 			mockSetErr:        nil,
 			defaultFunc:       defaultFn,
-			expectedReturnVal: 0,
+			expectedReturnVal: 0, // Default value for int
 			expectedErr:       errors.New("network error"),
 			expectSetCall:     false,
 		},
@@ -453,8 +453,8 @@ func TestManager_GetInt64OrSet(t *testing.T) {
 		{
 			name:              "should set and return default if type mismatch on get",
 			key:               key,
-			mockGetVal:        "not an int64",
-			mockGetErr:        nil, // GetInt64 will return ErrTypeMismatch
+			mockGetVal:        "not an int64", // GetInt64 will return ErrTypeMismatch
+			mockGetErr:        nil,
 			mockSetErr:        nil,
 			defaultFunc:       defaultFn,
 			expectedReturnVal: defaultValue,
@@ -588,8 +588,8 @@ func TestManager_GetIntsOrSet(t *testing.T) {
 		{
 			name:              "should set and return default if type mismatch on get",
 			key:               key,
-			mockGetVal:        "not an int array",
-			mockGetErr:        nil, // GetInts will return ErrTypeMismatch
+			mockGetVal:        "not an int array", // GetInts will return ErrTypeMismatch
+			mockGetErr:        nil,
 			mockSetErr:        nil,
 			defaultFunc:       defaultFn,
 			expectedReturnVal: defaultValue,
