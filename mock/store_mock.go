@@ -7,7 +7,6 @@ import (
 	"github.com/stretchr/testify/mock"
 )
 
-// MockStore implements multicache.Store using testify/mock
 type MockStore struct {
 	mock.Mock
 }

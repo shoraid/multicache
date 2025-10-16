@@ -1,6 +1,0 @@
-.vscode
-.env
-.env.testing
-__debug*
-app.log
-tmp
