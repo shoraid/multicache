@@ -3,6 +3,7 @@ package multicache
 import (
 	"testing"
 
+	"github.com/shoraid/multicache/contract"
 	multicachemock "github.com/shoraid/multicache/mock"
 	"github.com/stretchr/testify/assert"
 )
@@ -15,28 +16,28 @@ func TestManager_NewManager(t *testing.T) {
 	tests := []struct {
 		name         string
 		defaultStore string
-		stores       map[string]Store
+		stores       map[string]contract.Store
 		expectedErr  error
 		expectedNil  bool
 	}{
 		{
 			name:         "should return manager when default store exists",
 			defaultStore: "default",
-			stores:       map[string]Store{"default": mockStore},
+			stores:       map[string]contract.Store{"default": mockStore},
 			expectedErr:  nil,
 			expectedNil:  false,
 		},
 		{
 			name:         "should return error when default store does not exist",
 			defaultStore: "missing",
-			stores:       map[string]Store{"default": mockStore},
+			stores:       map[string]contract.Store{"default": mockStore},
 			expectedErr:  ErrInvalidDefaultStore,
 			expectedNil:  true,
 		},
 		{
 			name:         "should return error when stores map is empty",
 			defaultStore: "default",
-			stores:       map[string]Store{},
+			stores:       map[string]contract.Store{},
 			expectedErr:  ErrInvalidDefaultStore,
 			expectedNil:  true,
 		},
@@ -71,7 +72,7 @@ func TestManager_Store(t *testing.T) {
 	tests := []struct {
 		name          string
 		alias         string
-		expectedStore Store
+		expectedStore contract.Store
 	}{
 		{
 			name:          "should return manager with specified store when alias exists",
@@ -99,7 +100,7 @@ func TestManager_Store(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			stores := map[string]Store{
+			stores := map[string]contract.Store{
 				"memory": mockMemory,
 				"redis":  mockRedis,
 			}

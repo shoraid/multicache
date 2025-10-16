@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shoraid/multicache/contract"
 	multicachemock "github.com/shoraid/multicache/mock"
 	"github.com/stretchr/testify/assert"
 )
@@ -78,7 +79,7 @@ func TestGenericManager_Get(t *testing.T) {
 			ctx := context.Background()
 			mockStore := new(multicachemock.MockStore)
 			manager := &managerImpl{
-				stores: map[string]Store{"default": mockStore},
+				stores: map[string]contract.Store{"default": mockStore},
 				store:  mockStore,
 			}
 
@@ -205,7 +206,7 @@ func TestGenericManager_GetOrSet(t *testing.T) {
 			ttl := 5 * time.Minute
 			mockStore := new(multicachemock.MockStore)
 			manager := &managerImpl{
-				stores: map[string]Store{"default": mockStore},
+				stores: map[string]contract.Store{"default": mockStore},
 				store:  mockStore,
 			}
 

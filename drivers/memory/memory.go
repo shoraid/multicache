@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/shoraid/multicache"
+	"github.com/shoraid/multicache/contract"
 )
 
 type MemoryStore struct {
@@ -24,7 +25,7 @@ type memoryItem struct {
 // It starts a background goroutine to periodically clean up expired keys.
 // The cleanup interval can be provided via the config map under "cleanup_interval".
 // If not provided, a default interval of 10 minutes is used.
-func NewMemoryStore(config MemoryConfig) (multicache.Store, error) {
+func NewMemoryStore(config MemoryConfig) (contract.Store, error) {
 	store := &MemoryStore{}
 
 	// Set the cleanup interval from config, or use default

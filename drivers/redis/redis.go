@@ -9,6 +9,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 	"github.com/shoraid/multicache"
+	"github.com/shoraid/multicache/contract"
 )
 
 // define this in redis_store.go
@@ -37,7 +38,7 @@ type RedisStore struct {
 	client redisClient
 }
 
-func NewRedisStore(cfg RedisConfig) (multicache.Store, error) {
+func NewRedisStore(cfg RedisConfig) (contract.Store, error) {
 	var tlsConfig *tls.Config
 
 	// Only build TLS config if UseTLS is explicitly true

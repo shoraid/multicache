@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shoraid/multicache/contract"
 	multicachemock "github.com/shoraid/multicache/mock"
 	"github.com/stretchr/testify/assert"
 )
@@ -58,7 +59,7 @@ func TestManager_Get(t *testing.T) {
 			mockStore := new(multicachemock.MockStore)
 
 			manager := &managerImpl{
-				stores: map[string]Store{"default": mockStore},
+				stores: map[string]contract.Store{"default": mockStore},
 				store:  mockStore,
 			}
 
@@ -173,7 +174,7 @@ func TestManager_GetOrSet(t *testing.T) {
 			mockStore := new(multicachemock.MockStore)
 
 			manager := &managerImpl{
-				stores: map[string]Store{"default": mockStore},
+				stores: map[string]contract.Store{"default": mockStore},
 				store:  mockStore,
 			}
 
@@ -264,7 +265,7 @@ func TestManager_Has(t *testing.T) {
 			mockStore := new(multicachemock.MockStore)
 
 			manager := &managerImpl{
-				stores: map[string]Store{"default": mockStore},
+				stores: map[string]contract.Store{"default": mockStore},
 				store:  mockStore,
 			}
 
@@ -331,7 +332,7 @@ func TestManager_Set(t *testing.T) {
 			mockStore := new(multicachemock.MockStore)
 
 			manager := &managerImpl{
-				stores: map[string]Store{"default": mockStore},
+				stores: map[string]contract.Store{"default": mockStore},
 				store:  mockStore,
 			}
 

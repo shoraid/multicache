@@ -4,13 +4,15 @@ import (
 	"context"
 	"errors"
 	"time"
+
+	"github.com/shoraid/multicache/contract"
 )
 
 type GenericManager[T any] struct {
-	m Manager
+	m contract.Manager
 }
 
-func G[T any](m Manager) *GenericManager[T] {
+func G[T any](m contract.Manager) *GenericManager[T] {
 	return &GenericManager[T]{m: m}
 }
 
