@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
-	"github.com/shoraid/multicache"
-	"github.com/shoraid/multicache/contract"
+	"github.com/shoraid/omnicache"
+	"github.com/shoraid/omnicache/contract"
 )
 
 // define this in redis_store.go
@@ -105,7 +105,7 @@ func (r *RedisStore) DeleteMany(ctx context.Context, keys ...string) error {
 func (r *RedisStore) Get(ctx context.Context, key string) (any, error) {
 	value, err := r.client.Get(ctx, key).Result()
 	if err == redis.Nil {
-		return nil, multicache.ErrCacheMiss
+		return nil, omnicache.ErrCacheMiss
 	} else if err != nil {
 		return nil, err
 	}
@@ -124,7 +124,7 @@ func (r *RedisStore) Has(ctx context.Context, key string) (bool, error) {
 
 func (r *RedisStore) Set(ctx context.Context, key string, value any, ttl time.Duration) error {
 	if ttl < 0 {
-		return multicache.ErrInvalidValue
+		return omnicache.ErrInvalidValue
 	}
 
 	// Marshal value to JSON to handle all Go types safely

@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/shoraid/multicache"
-	"github.com/shoraid/multicache/contract"
+	"github.com/shoraid/omnicache"
+	"github.com/shoraid/omnicache/contract"
 )
 
 type MemoryStore struct {
@@ -29,7 +29,7 @@ func NewMemoryStore(config MemoryConfig) (contract.Store, error) {
 	store := &MemoryStore{}
 
 	// Set the cleanup interval from config, or use default
-	cleanupInterval := multicache.DefaultCleanupInterval
+	cleanupInterval := omnicache.DefaultCleanupInterval
 
 	if config.CleanupInterval > 0 {
 		cleanupInterval = config.CleanupInterval
@@ -174,7 +174,7 @@ func (m *MemoryStore) DeleteMany(ctx context.Context, keys ...string) error {
 func (m *MemoryStore) Get(ctx context.Context, key string) (any, error) {
 	value, exists := m.data.Load(key)
 	if !exists {
-		return nil, multicache.ErrCacheMiss
+		return nil, omnicache.ErrCacheMiss
 	}
 
 	item := value.(memoryItem)
@@ -182,7 +182,7 @@ func (m *MemoryStore) Get(ctx context.Context, key string) (any, error) {
 	// Key exists but expired
 	if !item.expiration.IsZero() && time.Now().After(item.expiration) {
 		m.data.Delete(key)
-		return nil, multicache.ErrCacheMiss
+		return nil, omnicache.ErrCacheMiss
 	}
 
 	return item.value, nil
@@ -213,7 +213,7 @@ func (m *MemoryStore) Has(ctx context.Context, key string) (bool, error) {
 // Existing keys are overwritten. Thread-safe via sync.Map.
 func (m *MemoryStore) Set(ctx context.Context, key string, value any, ttl time.Duration) error {
 	if ttl < 0 {
-		return multicache.ErrInvalidValue
+		return omnicache.ErrInvalidValue
 	}
 
 	var expiration time.Time

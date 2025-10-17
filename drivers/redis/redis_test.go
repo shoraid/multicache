@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
-	"github.com/shoraid/multicache"
+	"github.com/shoraid/omnicache"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -381,7 +381,7 @@ func TestRedisStore_Get(t *testing.T) {
 				return cmd
 			},
 			wantValue: nil,
-			wantErr:   multicache.ErrCacheMiss,
+			wantErr:   omnicache.ErrCacheMiss,
 		},
 		{
 			name: "should return error when Get fails with other error",
@@ -530,7 +530,7 @@ func TestRedisStore_Set(t *testing.T) {
 				return nil
 			},
 			wantErr:     true,
-			errContains: multicache.ErrInvalidValue.Error(),
+			errContains: omnicache.ErrInvalidValue.Error(),
 		},
 		{
 			name:  "should return error when Set fails",

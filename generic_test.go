@@ -1,4 +1,4 @@
-package multicache
+package omnicache
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	multicachemock "github.com/shoraid/multicache/mock"
+	omnicachemock "github.com/shoraid/omnicache/mock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -85,7 +85,7 @@ func TestGenericManager_Get(t *testing.T) {
 			t.Parallel()
 
 			// Arrange
-			mockStore := new(multicachemock.MockStore)
+			mockStore := new(omnicachemock.MockStore)
 			mockStore.GetFunc = func(ctx context.Context, key string) (any, error) {
 				assert.Equal(t, key, key, "expected correct key to be used")
 				return tt.mockVal, tt.mockErr
@@ -213,7 +213,7 @@ func TestGenericManager_GetOrSet(t *testing.T) {
 			t.Parallel()
 
 			// Arrange
-			mockStore := new(multicachemock.MockStore)
+			mockStore := new(omnicachemock.MockStore)
 			mockStore.GetFunc = func(_ context.Context, k string) (any, error) {
 				assert.Equal(t, key, k)
 				return tt.getVal, tt.getErr

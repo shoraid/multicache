@@ -1,11 +1,11 @@
-package multicache
+package omnicache
 
 import (
 	"fmt"
 	"os"
 	"sync"
 
-	"github.com/shoraid/multicache/contract"
+	"github.com/shoraid/omnicache/contract"
 )
 
 type Manager struct {
@@ -67,7 +67,7 @@ func (m *Manager) Store(alias string) *Manager {
 
 	store, exists := m.stores[alias]
 	if !exists {
-		fmt.Fprintf(os.Stderr, "[multicache] warning: store alias %q not found, using default store\n", alias)
+		fmt.Fprintf(os.Stderr, "[omnicache] warning: store alias %q not found, using default store\n", alias)
 		return m
 	}
 

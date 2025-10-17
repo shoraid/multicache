@@ -1,10 +1,10 @@
-package multicache
+package omnicache
 
 import (
 	"testing"
 
-	"github.com/shoraid/multicache/contract"
-	multicachemock "github.com/shoraid/multicache/mock"
+	"github.com/shoraid/omnicache/contract"
+	omnicachemock "github.com/shoraid/omnicache/mock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -22,8 +22,8 @@ func TestNewManager(t *testing.T) {
 func TestManager_Register(t *testing.T) {
 	t.Parallel()
 
-	mockStore1 := new(multicachemock.MockStore)
-	mockStore2 := new(multicachemock.MockStore)
+	mockStore1 := new(omnicachemock.MockStore)
+	mockStore2 := new(omnicachemock.MockStore)
 
 	tests := []struct {
 		name                 string
@@ -96,8 +96,8 @@ func TestManager_Register(t *testing.T) {
 func TestManager_SetDefault(t *testing.T) {
 	t.Parallel()
 
-	mockStore1 := new(multicachemock.MockStore)
-	mockStore2 := new(multicachemock.MockStore)
+	mockStore1 := new(omnicachemock.MockStore)
+	mockStore2 := new(omnicachemock.MockStore)
 
 	tests := []struct {
 		name                 string
@@ -164,8 +164,8 @@ func TestManager_SetDefault(t *testing.T) {
 func TestManager_Store(t *testing.T) {
 	t.Parallel()
 
-	mockMemory := new(multicachemock.MockStore)
-	mockRedis := new(multicachemock.MockStore)
+	mockMemory := new(omnicachemock.MockStore)
+	mockRedis := new(omnicachemock.MockStore)
 
 	tests := []struct {
 		name          string

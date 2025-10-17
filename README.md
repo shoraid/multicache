@@ -7,4 +7,4 @@ flexible **cache manager** for Go, with support for TTL (time-to-live), automati
 ## Installation
 
 ```bash
-go get github.com/shoraid/multicache
+go get github.com/shoraid/omnicache

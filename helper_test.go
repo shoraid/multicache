@@ -1,4 +1,4 @@
-package multicache
+package omnicache
 
 import (
 	"context"
@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	multicachemock "github.com/shoraid/multicache/mock"
+	omnicachemock "github.com/shoraid/omnicache/mock"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -891,7 +891,7 @@ func TestHelper_getOrSetDefault(t *testing.T) {
 			t.Parallel()
 
 			// Arrange
-			mockStore := new(multicachemock.MockStore)
+			mockStore := new(omnicachemock.MockStore)
 			mockStore.SetFunc = func(_ context.Context, k string, v any, d time.Duration) error {
 				assert.Equal(t, key, k)
 				assert.Equal(t, defaultVal, v)

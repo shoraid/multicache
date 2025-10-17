@@ -1,11 +1,11 @@
-package multicache
+package omnicache
 
 import (
 	"context"
 	"errors"
 	"testing"
 
-	multicachemock "github.com/shoraid/multicache/mock"
+	omnicachemock "github.com/shoraid/omnicache/mock"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -36,7 +36,7 @@ func TestManager_Clear(t *testing.T) {
 			// Arrange
 			ctx := context.Background()
 
-			mockStore := new(multicachemock.MockStore)
+			mockStore := new(omnicachemock.MockStore)
 			mockStore.ClearFunc = func(_ context.Context) error {
 				return tt.mockErr
 			}
@@ -92,7 +92,7 @@ func TestManager_Delete(t *testing.T) {
 			// Arrange
 			ctx := context.Background()
 
-			mockStore := new(multicachemock.MockStore)
+			mockStore := new(omnicachemock.MockStore)
 			mockStore.DeleteFunc = func(_ context.Context, k string) error {
 				assert.Equal(t, tt.key, k, "expected correct key to be used")
 				return tt.mockErr
@@ -149,7 +149,7 @@ func TestManager_DeleteByPattern(t *testing.T) {
 			// Arrange
 			ctx := context.Background()
 
-			mockStore := new(multicachemock.MockStore)
+			mockStore := new(omnicachemock.MockStore)
 			mockStore.DeleteByPatternFunc = func(_ context.Context, p string) error {
 				assert.Equal(t, tt.pattern, p, "expected correct pattern to be used")
 				return tt.mockErr
@@ -206,7 +206,7 @@ func TestManager_DeleteMany(t *testing.T) {
 			// Arrange
 			ctx := context.Background()
 
-			mockStore := new(multicachemock.MockStore)
+			mockStore := new(omnicachemock.MockStore)
 			mockStore.DeleteManyFunc = func(_ context.Context, keys ...string) error {
 				assert.Equal(t, tt.keys, keys, "expected correct keys to be used")
 				return tt.mockErr
@@ -275,7 +275,7 @@ func TestManager_DeleteManyByPattern(t *testing.T) {
 			// Arrange
 			ctx := context.Background()
 
-			mockStore := new(multicachemock.MockStore)
+			mockStore := new(omnicachemock.MockStore)
 			mockStore.DeleteByPatternFunc = func(_ context.Context, p string) error {
 				return tt.mockErrors[0]
 			}

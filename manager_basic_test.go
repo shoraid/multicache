@@ -1,4 +1,4 @@
-package multicache
+package omnicache
 
 import (
 	"context"
@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	multicachemock "github.com/shoraid/multicache/mock"
+	omnicachemock "github.com/shoraid/omnicache/mock"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -56,7 +56,7 @@ func TestManager_Get(t *testing.T) {
 			// Arrange
 			ctx := context.Background()
 
-			mockStore := new(multicachemock.MockStore)
+			mockStore := new(omnicachemock.MockStore)
 			mockStore.GetFunc = func(_ context.Context, key string) (any, error) {
 				assert.Equal(t, tt.key, key, "expected correct key to be used")
 				return tt.mockValue, tt.mockErr
@@ -179,7 +179,7 @@ func TestManager_GetOrSet(t *testing.T) {
 			// Arrange
 			ctx := context.Background()
 
-			mockStore := new(multicachemock.MockStore)
+			mockStore := new(omnicachemock.MockStore)
 			mockStore.GetFunc = func(_ context.Context, key string) (any, error) {
 				assert.Equal(t, tt.key, key, "expected correct key to be used in Get")
 				return tt.getMockValue, tt.getMockErr
@@ -270,7 +270,7 @@ func TestManager_Has(t *testing.T) {
 			// Arrange
 			ctx := context.Background()
 
-			mockStore := new(multicachemock.MockStore)
+			mockStore := new(omnicachemock.MockStore)
 			mockStore.HasFunc = func(_ context.Context, key string) (bool, error) {
 				assert.Equal(t, tt.key, key, "expected correct key to be used")
 				return tt.mockValue, tt.mockErr
@@ -337,7 +337,7 @@ func TestManager_Set(t *testing.T) {
 			// Arrange
 			ctx := context.Background()
 
-			mockStore := new(multicachemock.MockStore)
+			mockStore := new(omnicachemock.MockStore)
 			mockStore.SetFunc = func(_ context.Context, key string, value any, ttl time.Duration) error {
 				assert.Equal(t, tt.key, key, "expected correct key to be used")
 				assert.Equal(t, tt.value, value, "expected correct value to be used")

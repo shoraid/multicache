@@ -1,4 +1,4 @@
-module github.com/shoraid/multicache
+module github.com/shoraid/omnicache
 
 go 1.25.0
 

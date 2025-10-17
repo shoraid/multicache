@@ -1,4 +1,4 @@
-package multicache
+package omnicache
 
 import (
 	"context"
@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	multicachemock "github.com/shoraid/multicache/mock"
+	omnicachemock "github.com/shoraid/omnicache/mock"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -64,7 +64,7 @@ func TestManager_GetBool(t *testing.T) {
 			// Arrange
 			ctx := context.Background()
 
-			mockStore := new(multicachemock.MockStore)
+			mockStore := new(omnicachemock.MockStore)
 			mockStore.GetFunc = func(_ context.Context, key string) (any, error) {
 				assert.Equal(t, tt.key, key, "expected correct key to be used")
 				return tt.mockValue, tt.mockErr
@@ -189,7 +189,7 @@ func TestManager_GetBoolOrSet(t *testing.T) {
 			// Arrange
 			ctx := context.Background()
 			ttl := 5 * time.Minute
-			mockStore := new(multicachemock.MockStore)
+			mockStore := new(omnicachemock.MockStore)
 			mockStore.GetFunc = func(_ context.Context, key string) (any, error) {
 				assert.Equal(t, tt.key, key, "expected correct key to be used in Get")
 				if tt.mockGetVal != nil && errors.Is(tt.mockGetErr, ErrTypeMismatch) {

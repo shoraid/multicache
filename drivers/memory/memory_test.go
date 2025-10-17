@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shoraid/multicache"
+	"github.com/shoraid/omnicache"
 	"github.com/stretchr/testify/require"
 )
 
@@ -24,7 +24,7 @@ func TestMemoryStore_NewMemoryStore(t *testing.T) {
 		{
 			name:           "should use default cleanup interval when not provided",
 			config:         MemoryConfig{},
-			expectInterval: multicache.DefaultCleanupInterval,
+			expectInterval: omnicache.DefaultCleanupInterval,
 			expectNoError:  true,
 		},
 		{
@@ -40,7 +40,7 @@ func TestMemoryStore_NewMemoryStore(t *testing.T) {
 			config: MemoryConfig{
 				CleanupInterval: 0,
 			},
-			expectInterval: multicache.DefaultCleanupInterval,
+			expectInterval: omnicache.DefaultCleanupInterval,
 			expectNoError:  true,
 		},
 	}
@@ -650,7 +650,7 @@ func TestMemoryStore_Get(t *testing.T) {
 			},
 			key:           "nonexistent_key",
 			expectedValue: nil,
-			expectedError: multicache.ErrCacheMiss,
+			expectedError: omnicache.ErrCacheMiss,
 		},
 		{
 			name: "should return ErrCacheMiss for an expired key and delete it",
@@ -659,7 +659,7 @@ func TestMemoryStore_Get(t *testing.T) {
 			},
 			key:           "expired_key",
 			expectedValue: nil,
-			expectedError: multicache.ErrCacheMiss,
+			expectedError: omnicache.ErrCacheMiss,
 		},
 	}
 
@@ -685,7 +685,7 @@ func TestMemoryStore_Get(t *testing.T) {
 			}
 
 			// If key was expected to be expired and deleted, verify its absence
-			if errors.Is(tt.expectedError, multicache.ErrCacheMiss) {
+			if errors.Is(tt.expectedError, omnicache.ErrCacheMiss) {
 				_, exists := store.data.Load(tt.key)
 				require.False(t, exists, "expected expired key %q to be deleted from store", tt.key)
 			}
@@ -884,7 +884,7 @@ func TestMemoryStore_Set(t *testing.T) {
 				value: "value",
 				ttl:   -1 * time.Minute,
 			},
-			expectedError: multicache.ErrInvalidValue,
+			expectedError: omnicache.ErrInvalidValue,
 			expectedValue: nil,
 			expectedTTL:   0, // Not applicable, as it should error
 		},

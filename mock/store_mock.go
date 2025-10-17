@@ -1,4 +1,4 @@
-package multicachemock
+package omnicachemock
 
 import (
 	"context"
