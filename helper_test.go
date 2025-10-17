@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shoraid/multicache/contract"
 	multicachemock "github.com/shoraid/multicache/mock"
 	"github.com/stretchr/testify/assert"
 )
@@ -145,15 +144,18 @@ func TestHelper_toBool(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
+			// Act
 			result, err := toBool(tt.input)
 
+			// Assert
 			if tt.expectedErr != nil {
 				assert.Error(t, err)
 				assert.EqualError(t, err, tt.expectedErr.Error())
-			} else {
-				assert.NoError(t, err)
-				assert.Equal(t, tt.expected, result)
+				return
 			}
+
+			assert.NoError(t, err)
+			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
@@ -290,15 +292,18 @@ func TestHelper_toInt(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
+			// Act
 			result, err := toInt(tt.input)
 
+			// Assert
 			if tt.expectedErr != nil {
 				assert.Error(t, err)
 				assert.EqualError(t, err, tt.expectedErr.Error())
-			} else {
-				assert.NoError(t, err)
-				assert.Equal(t, tt.expected, result)
+				return
 			}
+
+			assert.NoError(t, err)
+			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
@@ -435,15 +440,18 @@ func TestHelper_toInt64(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
+			// Act
 			result, err := toInt64(tt.input)
 
+			// Assert
 			if tt.expectedErr != nil {
 				assert.Error(t, err)
 				assert.EqualError(t, err, tt.expectedErr.Error())
-			} else {
-				assert.NoError(t, err)
-				assert.Equal(t, tt.expected, result)
+				return
 			}
+
+			assert.NoError(t, err)
+			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
@@ -541,15 +549,18 @@ func TestHelper_toInts(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
+			// Act
 			result, err := toInts(tt.input)
 
+			// Assert
 			if tt.expectedErr != nil {
 				assert.Error(t, err)
 				assert.Equal(t, tt.expectedErr, err)
-			} else {
-				assert.NoError(t, err)
-				assert.Equal(t, tt.expected, result)
+				return
 			}
+
+			assert.NoError(t, err)
+			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
@@ -698,15 +709,18 @@ func TestHelper_toString(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
+			// Act
 			result, err := toString(tt.input)
 
+			// Assert
 			if tt.expectedErr != nil {
 				assert.Error(t, err)
 				assert.EqualError(t, err, tt.expectedErr.Error())
-			} else {
-				assert.NoError(t, err)
-				assert.Equal(t, tt.expected, result)
+				return
 			}
+
+			assert.NoError(t, err)
+			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
@@ -807,15 +821,18 @@ func TestHelper_toStrings(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
+			// Act
 			result, err := toStrings(tt.input)
 
+			// Assert
 			if tt.expectedErr != nil {
 				assert.Error(t, err)
 				assert.Equal(t, tt.expectedErr, err)
-			} else {
-				assert.NoError(t, err)
-				assert.Equal(t, tt.expected, result)
+				return
 			}
+
+			assert.NoError(t, err)
+			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
@@ -873,31 +890,30 @@ func TestHelper_getOrSetDefault(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
+			// Arrange
 			mockStore := new(multicachemock.MockStore)
-			manager := &managerImpl{
-				stores: map[string]contract.Store{"default": mockStore},
-				store:  mockStore,
+			mockStore.SetFunc = func(_ context.Context, k string, v any, d time.Duration) error {
+				assert.Equal(t, key, k)
+				assert.Equal(t, defaultVal, v)
+				assert.Equal(t, ttl, d)
+				return tt.setErr
 			}
 
-			if tt.expectedErr == nil || tt.expectedErr.Error() == "set failed" {
-				mockStore.
-					On("Set", ctx, key, defaultVal, ttl).
-					Return(tt.setErr).
-					Maybe() // Use Maybe because Set might not be called if defaultFn fails
-			}
+			manager := &Manager{store: mockStore}
 
+			// Act
 			value, err := getOrSetDefault(ctx, manager, key, ttl, tt.defaultFunc)
 
+			// Assert
 			if tt.expectedErr != nil {
 				assert.Error(t, err)
 				assert.EqualError(t, err, tt.expectedErr.Error())
 				assert.Equal(t, tt.expectedValue, value)
-			} else {
-				assert.NoError(t, err)
-				assert.Equal(t, tt.expectedValue, value)
+				return
 			}
 
-			mockStore.AssertExpectations(t)
+			assert.NoError(t, err)
+			assert.Equal(t, tt.expectedValue, value)
 		})
 	}
 }
