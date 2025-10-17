@@ -305,7 +305,7 @@ func toStrings(val any) ([]string, error) {
 // getOrSetDefault is a helper function to handle the common pattern of
 // getting a value from cache, and if it's a cache miss or type mismatch,
 // computing a default value and setting it in the cache.
-func getOrSetDefault[T any](ctx context.Context, m *managerImpl, key string, ttl time.Duration, defaultFn func() (T, error)) (T, error) {
+func getOrSetDefault[T any](ctx context.Context, m *Manager, key string, ttl time.Duration, defaultFn func() (T, error)) (T, error) {
 	val, err := defaultFn()
 	if err != nil {
 		var zero T

@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shoraid/multicache/contract"
 	multicachemock "github.com/shoraid/multicache/mock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -85,31 +84,31 @@ func TestGenericManager_Get(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
+			// Arrange
 			mockStore := new(multicachemock.MockStore)
-			manager := &managerImpl{
-				stores: map[string]contract.Store{"default": mockStore},
-				store:  mockStore,
+			mockStore.GetFunc = func(ctx context.Context, key string) (any, error) {
+				assert.Equal(t, key, key, "expected correct key to be used")
+				return tt.mockVal, tt.mockErr
 			}
 
-			// Mock Get call
-			mockStore.
-				On("Get", ctx, key).
-				Return(tt.mockVal, tt.mockErr).
-				Once()
+			manager := &Manager{store: mockStore}
 
+			// Act
 			g := G[SampleStruct](manager)
 			val, err := g.Get(ctx, key)
+
+			// Assert
+			mockStore.CalledOnce(t, "Get")
 
 			if tt.expectedErr != nil {
 				assert.Error(t, err, "expected error")
 				assert.Contains(t, err.Error(), tt.expectedErr.Error(), "expected error message match")
 				assert.Equal(t, SampleStruct{}, val, "expected zero value on error")
-			} else {
-				require.NoError(t, err, "expected no error")
-				assert.Equal(t, tt.expectedVal, val, "expected correct value")
+				return
 			}
 
-			mockStore.AssertExpectations(t)
+			require.NoError(t, err, "expected no error")
+			assert.Equal(t, tt.expectedVal, val, "expected correct value")
 		})
 	}
 }
@@ -213,39 +212,43 @@ func TestGenericManager_GetOrSet(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
+			// Arrange
 			mockStore := new(multicachemock.MockStore)
-			manager := &managerImpl{
-				stores: map[string]contract.Store{"default": mockStore},
-				store:  mockStore,
+			mockStore.GetFunc = func(_ context.Context, k string) (any, error) {
+				assert.Equal(t, key, k)
+				return tt.getVal, tt.getErr
+			}
+			mockStore.SetFunc = func(_ context.Context, k string, v any, d time.Duration) error {
+				assert.Equal(t, key, k)
+				assert.Equal(t, defaultVal, v)
+				assert.Equal(t, ttl, d)
+				return tt.setErr
 			}
 
-			// Mock Get call
-			mockStore.
-				On("Get", ctx, key).
-				Return(tt.getVal, tt.getErr).
-				Once()
+			manager := &Manager{store: mockStore}
 
-			// Mock Set call if expected
-			if tt.expectSetCalled {
-				mockStore.
-					On("Set", ctx, key, defaultVal, ttl).
-					Return(tt.setErr).
-					Once()
-			}
-
+			// Act
 			g := G[DummyStruct](manager)
 			val, err := g.GetOrSet(ctx, key, ttl, tt.defaultFn)
+
+			// Assert
+			mockStore.CalledOnce(t, "Get")
+
+			if tt.expectSetCalled {
+				mockStore.CalledOnce(t, "Set")
+			} else {
+				mockStore.NotCalled(t, "Set")
+			}
 
 			if tt.expectedErr != nil {
 				assert.Error(t, err, "expected error")
 				assert.Contains(t, err.Error(), tt.expectedErr.Error(), "expected error message")
 				assert.Equal(t, tt.expectedVal, val, "expected returned value")
-			} else {
-				require.NoError(t, err, "expected no error")
-				assert.Equal(t, tt.expectedVal, val, "expected correct value")
+				return
 			}
 
-			mockStore.AssertExpectations(t)
+			require.NoError(t, err, "expected no error")
+			assert.Equal(t, tt.expectedVal, val, "expected correct value")
 		})
 	}
 }

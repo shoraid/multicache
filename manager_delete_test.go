@@ -5,10 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/shoraid/multicache/contract"
 	multicachemock "github.com/shoraid/multicache/mock"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 )
 
 func TestManager_Clear(t *testing.T) {
@@ -16,18 +14,18 @@ func TestManager_Clear(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		mockReturn  error
-		expectedErr bool
+		mockErr     error
+		expectedErr error
 	}{
 		{
 			name:        "should clear successfully",
-			mockReturn:  nil,
-			expectedErr: false,
+			mockErr:     nil,
+			expectedErr: nil,
 		},
 		{
 			name:        "should return error when clear fails",
-			mockReturn:  errors.New("clear failed"),
-			expectedErr: true,
+			mockErr:     errors.New("clear failed"),
+			expectedErr: errors.New("clear failed"),
 		},
 	}
 
@@ -35,30 +33,29 @@ func TestManager_Clear(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
+			// Arrange
 			ctx := context.Background()
-			mockStore := new(multicachemock.MockStore)
 
-			manager := &managerImpl{
-				stores: map[string]contract.Store{"default": mockStore},
-				store:  mockStore,
+			mockStore := new(multicachemock.MockStore)
+			mockStore.ClearFunc = func(_ context.Context) error {
+				return tt.mockErr
 			}
 
-			mockStore.ExpectedCalls = nil // reset calls for isolation
-			mockStore.
-				On("Clear", ctx).
-				Return(tt.mockReturn).
-				Once()
+			manager := &Manager{store: mockStore}
 
+			// Act
 			err := manager.Clear(ctx)
 
-			if tt.expectedErr {
+			// Assert
+			mockStore.CalledOnce(t, "Clear")
+
+			if tt.expectedErr != nil {
 				assert.Error(t, err, "expected error when clear fails")
-				assert.EqualError(t, err, tt.mockReturn.Error(), "expected correct error message")
-			} else {
-				assert.NoError(t, err, "expected no error when clear succeeds")
+				assert.EqualError(t, err, tt.expectedErr.Error(), "expected correct error message")
+				return
 			}
 
-			mockStore.AssertExpectations(t)
+			assert.NoError(t, err, "expected no error when clear succeeds")
 		})
 	}
 }
@@ -71,20 +68,20 @@ func TestManager_Delete(t *testing.T) {
 	tests := []struct {
 		name        string
 		key         string
-		mockReturn  error
-		expectedErr bool
+		mockErr     error
+		expectedErr error
 	}{
 		{
 			name:        "should delete key successfully",
 			key:         key,
-			mockReturn:  nil,
-			expectedErr: false,
+			mockErr:     nil,
+			expectedErr: nil,
 		},
 		{
 			name:        "should return error when delete fails",
 			key:         key,
-			mockReturn:  errors.New("delete failed"),
-			expectedErr: true,
+			mockErr:     errors.New("delete failed"),
+			expectedErr: errors.New("delete failed"),
 		},
 	}
 
@@ -92,30 +89,30 @@ func TestManager_Delete(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
+			// Arrange
 			ctx := context.Background()
-			mockStore := new(multicachemock.MockStore)
 
-			manager := &managerImpl{
-				stores: map[string]contract.Store{"default": mockStore},
-				store:  mockStore,
+			mockStore := new(multicachemock.MockStore)
+			mockStore.DeleteFunc = func(_ context.Context, k string) error {
+				assert.Equal(t, tt.key, k, "expected correct key to be used")
+				return tt.mockErr
 			}
 
-			mockStore.ExpectedCalls = nil // reset calls for isolation
-			mockStore.
-				On("Delete", ctx, tt.key).
-				Return(tt.mockReturn).
-				Once()
+			manager := &Manager{store: mockStore}
 
+			// Act
 			err := manager.Delete(ctx, tt.key)
 
-			if tt.expectedErr {
+			// Assert
+			mockStore.CalledOnce(t, "Delete")
+
+			if tt.expectedErr != nil {
 				assert.Error(t, err, "expected error when delete fails")
-				assert.EqualError(t, err, tt.mockReturn.Error(), "expected correct error message")
-			} else {
-				assert.NoError(t, err, "expected no error when delete succeeds")
+				assert.EqualError(t, err, tt.expectedErr.Error(), "expected correct error message")
+				return
 			}
 
-			mockStore.AssertExpectations(t)
+			assert.NoError(t, err, "expected no error when delete succeeds")
 		})
 	}
 }
@@ -128,20 +125,20 @@ func TestManager_DeleteByPattern(t *testing.T) {
 	tests := []struct {
 		name        string
 		pattern     string
-		mockReturn  error
-		expectedErr bool
+		mockErr     error
+		expectedErr error
 	}{
 		{
 			name:        "should delete by pattern successfully",
 			pattern:     pattern,
-			mockReturn:  nil,
-			expectedErr: false,
+			mockErr:     nil,
+			expectedErr: nil,
 		},
 		{
 			name:        "should return error when delete by pattern fails",
 			pattern:     pattern,
-			mockReturn:  errors.New("delete by pattern failed"),
-			expectedErr: true,
+			mockErr:     errors.New("delete by pattern failed"),
+			expectedErr: errors.New("delete by pattern failed"),
 		},
 	}
 
@@ -149,28 +146,30 @@ func TestManager_DeleteByPattern(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
+			// Arrange
 			ctx := context.Background()
 
 			mockStore := new(multicachemock.MockStore)
-
-			manager := &managerImpl{
-				stores: map[string]contract.Store{"default": mockStore},
-				store:  mockStore,
+			mockStore.DeleteByPatternFunc = func(_ context.Context, p string) error {
+				assert.Equal(t, tt.pattern, p, "expected correct pattern to be used")
+				return tt.mockErr
 			}
 
-			mockStore.ExpectedCalls = nil // reset calls between cases
-			mockStore.On("DeleteByPattern", ctx, tt.pattern).Return(tt.mockReturn).Once()
+			manager := &Manager{store: mockStore}
 
+			// Act
 			err := manager.DeleteByPattern(ctx, tt.pattern)
 
-			if tt.expectedErr {
+			// Assert
+			mockStore.CalledOnce(t, "DeleteByPattern")
+
+			if tt.expectedErr != nil {
 				assert.Error(t, err, "expected error when delete by pattern fails")
-				assert.EqualError(t, err, tt.mockReturn.Error(), "expected correct error message")
-			} else {
-				assert.NoError(t, err, "expected no error when delete by pattern succeeds")
+				assert.EqualError(t, err, tt.expectedErr.Error(), "expected correct error message")
+				return
 			}
 
-			mockStore.AssertExpectations(t)
+			assert.NoError(t, err, "expected no error when delete by pattern succeeds")
 		})
 	}
 }
@@ -183,20 +182,20 @@ func TestManager_DeleteMany(t *testing.T) {
 	tests := []struct {
 		name        string
 		keys        []string
-		mockReturn  error
-		expectedErr bool
+		mockErr     error
+		expectedErr error
 	}{
 		{
 			name:        "should delete many keys successfully",
 			keys:        keys,
-			mockReturn:  nil,
-			expectedErr: false,
+			mockErr:     nil,
+			expectedErr: nil,
 		},
 		{
 			name:        "should return error when delete many fails",
 			keys:        keys,
-			mockReturn:  errors.New("delete many failed"),
-			expectedErr: true,
+			mockErr:     errors.New("delete many failed"),
+			expectedErr: errors.New("delete many failed"),
 		},
 	}
 
@@ -204,30 +203,30 @@ func TestManager_DeleteMany(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
+			// Arrange
 			ctx := context.Background()
-			mockStore := new(multicachemock.MockStore)
 
-			manager := &managerImpl{
-				stores: map[string]contract.Store{"default": mockStore},
-				store:  mockStore,
+			mockStore := new(multicachemock.MockStore)
+			mockStore.DeleteManyFunc = func(_ context.Context, keys ...string) error {
+				assert.Equal(t, tt.keys, keys, "expected correct keys to be used")
+				return tt.mockErr
 			}
 
-			mockStore.ExpectedCalls = nil // reset calls for isolation
-			mockStore.
-				On("DeleteMany", ctx, tt.keys).
-				Return(tt.mockReturn).
-				Once()
+			manager := &Manager{store: mockStore}
 
+			// Act
 			err := manager.DeleteMany(ctx, tt.keys...)
 
-			if tt.expectedErr {
+			// Assert
+			mockStore.CalledOnce(t, "DeleteMany")
+
+			if tt.expectedErr != nil {
 				assert.Error(t, err, "expected error when delete many fails")
-				assert.EqualError(t, err, tt.mockReturn.Error(), "expected correct error message")
-			} else {
-				assert.NoError(t, err, "expected no error when delete many succeeds")
+				assert.EqualError(t, err, tt.expectedErr.Error(), "expected correct error message")
+				return
 			}
 
-			mockStore.AssertExpectations(t)
+			assert.NoError(t, err, "expected no error when delete many succeeds")
 		})
 	}
 }
@@ -240,32 +239,32 @@ func TestManager_DeleteManyByPattern(t *testing.T) {
 	tests := []struct {
 		name        string
 		patterns    []string
-		mockReturns []error // one error per pattern deletion
-		expectedErr bool
+		mockErrors  []error // one error per pattern deletion
+		expectedErr error
 	}{
 		{
 			name:        "should delete many by pattern successfully",
 			patterns:    patterns,
-			mockReturns: []error{nil, nil},
-			expectedErr: false,
+			mockErrors:  []error{nil, nil},
+			expectedErr: nil,
 		},
 		{
 			name:        "should return error if one deletion fails",
 			patterns:    patterns,
-			mockReturns: []error{errors.New("delete user pattern failed"), nil},
-			expectedErr: true,
+			mockErrors:  []error{errors.New("delete user pattern failed"), nil},
+			expectedErr: errors.New("delete user pattern failed"),
 		},
 		{
 			name:        "should return error if all deletions fail",
 			patterns:    patterns,
-			mockReturns: []error{errors.New("delete user pattern failed"), errors.New("delete product pattern failed")},
-			expectedErr: true,
+			mockErrors:  []error{errors.New("delete user pattern failed"), errors.New("delete product pattern failed")},
+			expectedErr: errors.New("delete user pattern failed"),
 		},
 		{
 			name:        "should handle empty patterns list",
 			patterns:    []string{},
-			mockReturns: []error{},
-			expectedErr: false,
+			mockErrors:  []error{},
+			expectedErr: nil,
 		},
 	}
 
@@ -273,36 +272,29 @@ func TestManager_DeleteManyByPattern(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
+			// Arrange
 			ctx := context.Background()
+
 			mockStore := new(multicachemock.MockStore)
-
-			manager := &managerImpl{
-				stores: map[string]contract.Store{"default": mockStore},
-				store:  mockStore,
+			mockStore.DeleteByPatternFunc = func(_ context.Context, p string) error {
+				return tt.mockErrors[0]
 			}
 
-			mockStore.ExpectedCalls = nil // reset calls for isolation
+			manager := &Manager{store: mockStore}
 
-			for i, pattern := range tt.patterns {
-				var returnErr error
-				if i < len(tt.mockReturns) {
-					returnErr = tt.mockReturns[i]
-				}
-				mockStore.
-					On("DeleteByPattern", mock.Anything, pattern).
-					Return(returnErr).
-					Once()
-			}
-
+			// Act
 			err := manager.DeleteManyByPattern(ctx, tt.patterns...)
 
-			if tt.expectedErr {
+			// Assert
+			callCount := mockStore.CallCount("DeleteByPattern")
+			assert.Equal(t, callCount, len(tt.patterns), "expected DeleteByPattern to be called for each pattern")
+
+			if tt.expectedErr != nil {
 				assert.Error(t, err, "expected error when delete many by pattern fails")
+				assert.EqualError(t, err, tt.expectedErr.Error(), "expected correct error message")
 			} else {
 				assert.NoError(t, err, "expected no error when delete many by pattern succeeds")
 			}
-
-			mockStore.AssertExpectations(t)
 		})
 	}
 }
