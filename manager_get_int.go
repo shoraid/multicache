@@ -6,7 +6,9 @@ import (
 	"time"
 )
 
-func (m *managerImpl) GetInt(ctx context.Context, key string) (int, error) {
+// GetInt retrieves an int value from the cache.
+// Returns ErrTypeMismatch if the cached value is not an int.
+func (m *Manager) GetInt(ctx context.Context, key string) (int, error) {
 	val, err := m.store.Get(ctx, key)
 	if err != nil {
 		return 0, err
@@ -20,7 +22,9 @@ func (m *managerImpl) GetInt(ctx context.Context, key string) (int, error) {
 	return intVal, nil
 }
 
-func (m *managerImpl) GetInt64(ctx context.Context, key string) (int64, error) {
+// GetInt64 retrieves an int64 value from the cache.
+// Returns ErrTypeMismatch if the cached value is not an int64.
+func (m *Manager) GetInt64(ctx context.Context, key string) (int64, error) {
 	val, err := m.store.Get(ctx, key)
 	if err != nil {
 		return 0, err
@@ -34,7 +38,9 @@ func (m *managerImpl) GetInt64(ctx context.Context, key string) (int64, error) {
 	return intVal, nil
 }
 
-func (m *managerImpl) GetInts(ctx context.Context, key string) ([]int, error) {
+// GetInts retrieves a slice of int values from the cache.
+// Returns ErrTypeMismatch if the cached value is not a []int.
+func (m *Manager) GetInts(ctx context.Context, key string) ([]int, error) {
 	val, err := m.store.Get(ctx, key)
 	if err != nil {
 		return nil, err
@@ -48,41 +54,44 @@ func (m *managerImpl) GetInts(ctx context.Context, key string) ([]int, error) {
 	return intsVal, nil
 }
 
-func (m *managerImpl) GetIntOrSet(ctx context.Context, key string, ttl time.Duration, defaultFn func() (int, error)) (int, error) {
+// GetIntOrSet works like GetOrSet but for int values.
+func (m *Manager) GetIntOrSet(ctx context.Context, key string, ttl time.Duration, defaultFn func() (int, error)) (int, error) {
 	val, err := m.GetInt(ctx, key)
 	if err == nil {
 		return val, nil
 	}
 
-	if errors.Is(err, ErrCacheMiss) || errors.Is(err, ErrTypeMismatch) {
-		return getOrSetDefault(ctx, m, key, ttl, defaultFn)
+	if !errors.Is(err, ErrCacheMiss) && !errors.Is(err, ErrTypeMismatch) {
+		return 0, err
 	}
 
-	return 0, err
+	return getOrSetDefault(ctx, m, key, ttl, defaultFn)
 }
 
-func (m *managerImpl) GetInt64OrSet(ctx context.Context, key string, ttl time.Duration, defaultFn func() (int64, error)) (int64, error) {
+// GetInt64OrSet works like GetOrSet but for int64 values.
+func (m *Manager) GetInt64OrSet(ctx context.Context, key string, ttl time.Duration, defaultFn func() (int64, error)) (int64, error) {
 	val, err := m.GetInt64(ctx, key)
 	if err == nil {
 		return val, nil
 	}
 
-	if errors.Is(err, ErrCacheMiss) || errors.Is(err, ErrTypeMismatch) {
-		return getOrSetDefault(ctx, m, key, ttl, defaultFn)
+	if !errors.Is(err, ErrCacheMiss) && !errors.Is(err, ErrTypeMismatch) {
+		return 0, err
 	}
 
-	return 0, err
+	return getOrSetDefault(ctx, m, key, ttl, defaultFn)
 }
 
-func (m *managerImpl) GetIntsOrSet(ctx context.Context, key string, ttl time.Duration, defaultFn func() ([]int, error)) ([]int, error) {
+// GetIntsOrSet works like GetOrSet but for []int values.
+func (m *Manager) GetIntsOrSet(ctx context.Context, key string, ttl time.Duration, defaultFn func() ([]int, error)) ([]int, error) {
 	val, err := m.GetInts(ctx, key)
 	if err == nil {
 		return val, nil
 	}
 
-	if errors.Is(err, ErrCacheMiss) || errors.Is(err, ErrTypeMismatch) {
-		return getOrSetDefault(ctx, m, key, ttl, defaultFn)
+	if !errors.Is(err, ErrCacheMiss) && !errors.Is(err, ErrTypeMismatch) {
+		return nil, err
 	}
 
-	return nil, err
+	return getOrSetDefault(ctx, m, key, ttl, defaultFn)
 }
