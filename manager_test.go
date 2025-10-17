@@ -6,6 +6,7 @@ import (
 	"github.com/shoraid/multicache/contract"
 	multicachemock "github.com/shoraid/multicache/mock"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewManager(t *testing.T) {
@@ -13,9 +14,9 @@ func TestNewManager(t *testing.T) {
 
 	manager := NewManager()
 
-	assert.NotNil(t, manager, "NewManager should return a non-nil manager")
-	assert.Empty(t, manager.(*managerImpl).stores, "NewManager should initialize with an empty stores map")
-	assert.Nil(t, manager.(*managerImpl).store, "NewManager should initialize with a nil default store")
+	require.NotNil(t, manager, "expected NewManager to return a non-nil instance")
+	assert.Empty(t, manager.stores, "expected stores map to be initialized empty")
+	assert.Nil(t, manager.store, "expected default store to be nil")
 }
 
 func TestManager_Register(t *testing.T) {
@@ -28,7 +29,7 @@ func TestManager_Register(t *testing.T) {
 		name                 string
 		alias                string
 		storeToRegister      contract.Store
-		setup                func(m *managerImpl)
+		setup                func(m *Manager)
 		expectedErr          error
 		expectedStoreCount   int
 		expectedDefaultStore contract.Store
@@ -37,7 +38,7 @@ func TestManager_Register(t *testing.T) {
 			name:                 "should register first store as default",
 			alias:                "store1",
 			storeToRegister:      mockStore1,
-			setup:                func(m *managerImpl) {},
+			setup:                func(m *Manager) {},
 			expectedErr:          nil,
 			expectedStoreCount:   1,
 			expectedDefaultStore: mockStore1,
@@ -46,7 +47,7 @@ func TestManager_Register(t *testing.T) {
 			name:            "should register additional store without changing default",
 			alias:           "store2",
 			storeToRegister: mockStore2,
-			setup: func(m *managerImpl) {
+			setup: func(m *Manager) {
 				m.stores["store1"] = mockStore1
 				m.store = mockStore1
 			},
@@ -58,7 +59,7 @@ func TestManager_Register(t *testing.T) {
 			name:            "should return error if alias already registered",
 			alias:           "store1",
 			storeToRegister: mockStore2,
-			setup: func(m *managerImpl) {
+			setup: func(m *Manager) {
 				m.stores["store1"] = mockStore1
 				m.store = mockStore1
 			},
@@ -72,7 +73,7 @@ func TestManager_Register(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			manager := &managerImpl{
+			manager := &Manager{
 				stores: make(map[string]contract.Store),
 			}
 
@@ -101,14 +102,14 @@ func TestManager_SetDefault(t *testing.T) {
 	tests := []struct {
 		name                 string
 		aliasToSet           string
-		setup                func(m *managerImpl)
+		setup                func(m *Manager)
 		expectedErr          error
 		expectedDefaultStore contract.Store
 	}{
 		{
 			name:       "should set default store successfully",
 			aliasToSet: "store2",
-			setup: func(m *managerImpl) {
+			setup: func(m *Manager) {
 				m.stores["store1"] = mockStore1
 				m.stores["store2"] = mockStore2
 				m.store = mockStore1 // initial default
@@ -119,7 +120,7 @@ func TestManager_SetDefault(t *testing.T) {
 		{
 			name:       "should return error if alias does not exist",
 			aliasToSet: "nonexistent",
-			setup: func(m *managerImpl) {
+			setup: func(m *Manager) {
 				m.stores["store1"] = mockStore1
 				m.store = mockStore1
 			},
@@ -129,7 +130,7 @@ func TestManager_SetDefault(t *testing.T) {
 		{
 			name:       "should not change default if setting to current default",
 			aliasToSet: "store1",
-			setup: func(m *managerImpl) {
+			setup: func(m *Manager) {
 				m.stores["store1"] = mockStore1
 				m.store = mockStore1
 			},
@@ -142,7 +143,7 @@ func TestManager_SetDefault(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			manager := &managerImpl{
+			manager := &Manager{
 				stores: make(map[string]contract.Store),
 			}
 
@@ -197,7 +198,7 @@ func TestManager_Store(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			manager := &managerImpl{
+			manager := &Manager{
 				stores: make(map[string]contract.Store),
 			}
 			manager.stores["memory"] = mockMemory
@@ -207,8 +208,8 @@ func TestManager_Store(t *testing.T) {
 			aliasedManager := manager.Store(tt.alias)
 
 			assert.NotNil(t, aliasedManager, "expected a manager instance")
-			assert.Equal(t, tt.expectedStore, aliasedManager.(*managerImpl).store, "expected the aliased store to be set correctly")
-			assert.Equal(t, manager.stores, aliasedManager.(*managerImpl).stores, "expected the stores map to remain the same")
+			assert.Equal(t, tt.expectedStore, aliasedManager.store, "expected the aliased store to be set correctly")
+			assert.Equal(t, manager.stores, aliasedManager.stores, "expected the stores map to remain the same")
 		})
 	}
 }

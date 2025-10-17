@@ -8,22 +8,26 @@ import (
 	"github.com/shoraid/multicache/contract"
 )
 
-type managerImpl struct {
+type Manager struct {
 	mu     sync.RWMutex
 	stores map[string]contract.Store
 	store  contract.Store
 }
 
-func NewManager() contract.Manager {
-	return &managerImpl{
+func NewManager() *Manager {
+	return &Manager{
 		stores: make(map[string]contract.Store),
 	}
 }
 
-func (m *managerImpl) Register(alias string, store contract.Store) error {
+// Register adds a new store with the given alias.
+// The first registered store becomes the default.
+// Returns an error if the alias is already registered.
+func (m *Manager) Register(alias string, store contract.Store) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	// First store becomes default
 	if len(m.stores) == 0 {
 		m.store = store
 	}
@@ -37,7 +41,9 @@ func (m *managerImpl) Register(alias string, store contract.Store) error {
 	return nil
 }
 
-func (m *managerImpl) SetDefault(alias string) error {
+// SetDefault sets the store with the given alias as the default store.
+// Returns an error if the alias has not been registered.
+func (m *Manager) SetDefault(alias string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -51,7 +57,11 @@ func (m *managerImpl) SetDefault(alias string) error {
 	return nil
 }
 
-func (m *managerImpl) Store(alias string) contract.Manager {
+// Store switches the active cache store to the one registered under
+// the given alias. It returns a new Manager instance bound to that
+// store. If the alias does not exist, the implementation may return
+// a no-op manager or panic, depending on configuration.
+func (m *Manager) Store(alias string) *Manager {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -61,7 +71,7 @@ func (m *managerImpl) Store(alias string) contract.Manager {
 		return m
 	}
 
-	return &managerImpl{
+	return &Manager{
 		stores: m.stores,
 		store:  store,
 	}
