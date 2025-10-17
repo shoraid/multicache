@@ -6,7 +6,9 @@ import (
 	"time"
 )
 
-func (m *managerImpl) GetString(ctx context.Context, key string) (string, error) {
+// GetString retrieves a string value from the cache.
+// Returns ErrTypeMismatch if the cached value is not a string.
+func (m *Manager) GetString(ctx context.Context, key string) (string, error) {
 	val, err := m.store.Get(ctx, key)
 	if err != nil {
 		return "", err
@@ -20,7 +22,9 @@ func (m *managerImpl) GetString(ctx context.Context, key string) (string, error)
 	return stringVal, nil
 }
 
-func (m *managerImpl) GetStrings(ctx context.Context, key string) ([]string, error) {
+// GetStrings retrieves a []string value from the cache.
+// Returns ErrTypeMismatch if the cached value is not a []string.
+func (m *Manager) GetStrings(ctx context.Context, key string) ([]string, error) {
 	val, err := m.store.Get(ctx, key)
 	if err != nil {
 		return nil, err
@@ -34,28 +38,30 @@ func (m *managerImpl) GetStrings(ctx context.Context, key string) ([]string, err
 	return stringsVal, nil
 }
 
-func (m *managerImpl) GetStringOrSet(ctx context.Context, key string, ttl time.Duration, defaultFn func() (string, error)) (string, error) {
+// GetStringOrSet works like GetOrSet but for string values.
+func (m *Manager) GetStringOrSet(ctx context.Context, key string, ttl time.Duration, defaultFn func() (string, error)) (string, error) {
 	val, err := m.GetString(ctx, key)
 	if err == nil {
 		return val, nil
 	}
 
-	if errors.Is(err, ErrCacheMiss) || errors.Is(err, ErrTypeMismatch) {
-		return getOrSetDefault(ctx, m, key, ttl, defaultFn)
+	if !errors.Is(err, ErrCacheMiss) && !errors.Is(err, ErrTypeMismatch) {
+		return "", err
 	}
 
-	return "", err
+	return getOrSetDefault(ctx, m, key, ttl, defaultFn)
 }
 
-func (m *managerImpl) GetStringsOrSet(ctx context.Context, key string, ttl time.Duration, defaultFn func() ([]string, error)) ([]string, error) {
+// GetStringsOrSet works like GetOrSet but for []string values.
+func (m *Manager) GetStringsOrSet(ctx context.Context, key string, ttl time.Duration, defaultFn func() ([]string, error)) ([]string, error) {
 	val, err := m.GetStrings(ctx, key)
 	if err == nil {
 		return val, nil
 	}
 
-	if errors.Is(err, ErrCacheMiss) || errors.Is(err, ErrTypeMismatch) {
-		return getOrSetDefault(ctx, m, key, ttl, defaultFn)
+	if !errors.Is(err, ErrCacheMiss) && !errors.Is(err, ErrTypeMismatch) {
+		return nil, err
 	}
 
-	return nil, err
+	return getOrSetDefault(ctx, m, key, ttl, defaultFn)
 }
