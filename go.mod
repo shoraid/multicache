@@ -1,11 +1,10 @@
 module github.com/shoraid/omnicache
 
-go 1.25.0
+go 1.18
 
 require (
 	github.com/redis/go-redis/v9 v9.14.0
 	github.com/stretchr/testify v1.10.0
-	golang.org/x/sync v0.17.0
 )
 
 require (

@@ -46,6 +46,8 @@ func TestMemoryStore_NewMemoryStore(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
+
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -105,6 +107,8 @@ func TestMemoryStore_Clear(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
+
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -173,6 +177,8 @@ func TestMemoryStore_cleanupExpiredKeys(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
+
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -246,6 +252,8 @@ func TestMemoryStore_deleteExpiredKeys(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
+
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -320,6 +328,8 @@ func TestMemoryStore_Delete(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
+
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -460,6 +470,8 @@ func TestMemoryStore_DeleteByPattern(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
+
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -559,6 +571,8 @@ func TestMemoryStore_DeleteMany(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
+
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -664,6 +678,8 @@ func TestMemoryStore_Get(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
+
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -738,6 +754,8 @@ func TestMemoryStore_Has(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
+
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -891,6 +909,8 @@ func TestMemoryStore_Set(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
+
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -940,7 +960,8 @@ func BenchmarkMemoryStore_deleteExpiredKeys(b *testing.B) {
 	}
 
 	// Fill the store with 10000 keys, half expired, half not
-	for i := range 10000 {
+	const n = 10000
+	for i := 0; i < n; i++ {
 		key := fmt.Sprintf("key-%d", i)
 		var expiration time.Time
 		if i%2 == 0 {
@@ -964,7 +985,8 @@ func BenchmarkMemoryStore_Clear(b *testing.B) {
 		data: sync.Map{},
 	}
 
-	for i := range 1000 {
+	const n = 10000
+	for i := 0; i < n; i++ {
 		key := fmt.Sprintf("key-%d", i)
 		store.data.Store(key, memoryItem{
 			value:      i,
@@ -982,7 +1004,8 @@ func BenchmarkMemoryStore_Delete(b *testing.B) {
 		data: sync.Map{},
 	}
 
-	for i := range 10000 {
+	const n = 10000
+	for i := 0; i < n; i++ {
 		key := fmt.Sprintf("key-%d", i)
 		store.data.Store(key, memoryItem{
 			value:      i,
@@ -1013,7 +1036,7 @@ func BenchmarkMemoryStore_DeleteByPattern(b *testing.B) {
 	}
 
 	numKeys := 100_000
-	for i := range numKeys {
+	for i := 0; i < numKeys; i++ {
 		if i%2 == 0 {
 			store.Set(context.Background(), fmt.Sprintf("auth:tenant:%d:user:%d:access_token:%d", i%100, i%1000, i), "value", 0)
 		} else {
@@ -1033,7 +1056,7 @@ func BenchmarkMemoryStore_DeleteMany(b *testing.B) {
 
 	makeKeys := func(prefix string, n int) []string {
 		keys := make([]string, n)
-		for i := range n {
+		for i := 0; i < n; i++ {
 			key := fmt.Sprintf("%s-%d", prefix, i+1)
 			keys[i] = key
 			store.data.Store(key, memoryItem{

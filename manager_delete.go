@@ -2,8 +2,7 @@ package omnicache
 
 import (
 	"context"
-
-	"golang.org/x/sync/errgroup"
+	"sync"
 )
 
 // Clear removes all keys and values from the current store.
@@ -34,14 +33,25 @@ func (m *Manager) DeleteMany(ctx context.Context, keys ...string) error {
 // DeleteManyByPattern removes entries matching any of the given patterns.
 // Behavior follows DeleteByPattern for each pattern.
 func (m *Manager) DeleteManyByPattern(ctx context.Context, patterns ...string) error {
-	g, ctx := errgroup.WithContext(ctx)
+	var wg sync.WaitGroup
+	errCh := make(chan error, len(patterns))
 
 	for _, pattern := range patterns {
 		p := pattern
-		g.Go(func() error {
-			return m.store.DeleteByPattern(ctx, p)
-		})
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := m.store.DeleteByPattern(ctx, p); err != nil {
+				errCh <- err
+			}
+		}()
 	}
 
-	return g.Wait() // returns first non-nil error (or nil if all succeeded)
+	wg.Wait()
+	close(errCh)
+
+	for err := range errCh {
+		return err
+	}
+	return nil
 }
