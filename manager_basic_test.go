@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shoraid/omnicache/internal/assert"
 	omnicachemock "github.com/shoraid/omnicache/mock"
-	"github.com/stretchr/testify/assert"
 )
 
 func TestManager_Get(t *testing.T) {
@@ -16,36 +16,36 @@ func TestManager_Get(t *testing.T) {
 	key := "test-key"
 
 	tests := []struct {
-		name          string
-		key           string
-		mockValue     any
-		mockErr       error
-		expectedValue any
-		expectedErr   error
+		name        string
+		key         string
+		mockVal     any
+		mockErr     error
+		expectedVal any
+		expectedErr error
 	}{
 		{
-			name:          "should get value successfully",
-			key:           key,
-			mockValue:     "test-value",
-			mockErr:       nil,
-			expectedValue: "test-value",
-			expectedErr:   nil,
+			name:        "should successfully get the value when it exists and is not expired",
+			key:         key,
+			mockVal:     "test-value",
+			mockErr:     nil,
+			expectedVal: "test-value",
+			expectedErr: nil,
 		},
 		{
-			name:          "should return cache miss error",
-			key:           key,
-			mockValue:     nil,
-			mockErr:       ErrCacheMiss,
-			expectedValue: nil,
-			expectedErr:   ErrCacheMiss,
+			name:        "should return a cache miss error when the key does not exist",
+			key:         key,
+			mockVal:     nil,
+			mockErr:     ErrCacheMiss,
+			expectedVal: nil,
+			expectedErr: ErrCacheMiss,
 		},
 		{
-			name:          "should return other error",
-			key:           key,
-			mockValue:     nil,
-			mockErr:       errors.New("some other error"),
-			expectedValue: nil,
-			expectedErr:   errors.New("some other error"),
+			name:        "should return the same error when the store returns an error other than cache miss",
+			key:         key,
+			mockVal:     nil,
+			mockErr:     errors.New("some other error"),
+			expectedVal: nil,
+			expectedErr: errors.New("some other error"),
 		},
 	}
 
@@ -55,32 +55,29 @@ func TestManager_Get(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			// Arrange
+			// --- Arrange ---
 			ctx := context.Background()
-
-			mockStore := new(omnicachemock.MockStore)
-			mockStore.GetFunc = func(_ context.Context, key string) (any, error) {
-				assert.Equal(t, tt.key, key, "expected correct key to be used")
-				return tt.mockValue, tt.mockErr
-			}
+			mockStore := omnicachemock.NewMockStore(t)
+			mockStore.Mock.On("Get", ctx, tt.key).Return(tt.mockVal, tt.mockErr)
 
 			manager := &Manager{store: mockStore}
 
-			// Act
+			// --- Act ---
 			value, err := manager.Get(ctx, tt.key)
 
-			// Assert
-			mockStore.CalledOnce(t, "Get")
+			// --- Assert ---
+			mockStore.Mock.AssertCalled(t, "Get", ctx, tt.key)
+			mockStore.Mock.AssertExpectations(t)
 
 			if tt.expectedErr != nil {
-				assert.Error(t, err, "expected error")
-				assert.Equal(t, tt.expectedErr.Error(), err.Error(), "expected correct error message")
-				assert.Nil(t, value, "expected nil value on error")
+				assert.Error(t, err, "must return an error when Get fails")
+				assert.EqualError(t, tt.expectedErr, err, "error returned by Get must match the expected error")
+				assert.Nil(t, value, "value must be nil when Get returns an error")
 				return
 			}
 
-			assert.NoError(t, err, "expected no error")
-			assert.Equal(t, tt.expectedValue, value, "expected correct value")
+			assert.NoError(t, err, "must not return an error when Get succeeds")
+			assert.Equal(t, tt.expectedVal, value, "value returned by Get must match the expected value")
 		})
 	}
 }
@@ -91,86 +88,72 @@ func TestManager_GetOrSet(t *testing.T) {
 	key := "test-key"
 	ttl := 5 * time.Minute
 	defaultValue := "default-value"
-	defaultFn := func() (any, error) {
-		return defaultValue, nil
-	}
-	defaultFnErr := func() (any, error) {
-		return nil, errors.New("default function error")
-	}
+	defaultFn := func() (any, error) { return defaultValue, nil }
+	defaultFnErr := func() (any, error) { return nil, errors.New("default function error") }
 
 	tests := []struct {
 		name              string
 		key               string
-		getMockValue      any
+		getMockVal        any
 		getMockErr        error
 		setMockErr        error
 		defaultFn         func() (any, error)
-		expectedValue     any
+		expectedVal       any
 		expectedErr       error
 		expectedSetCalled bool
 	}{
 		{
-			name:              "should return existing value if cache hit",
+			name:              "should return existing value when cache hit",
 			key:               key,
-			getMockValue:      "cached-value",
+			getMockVal:        "cached-value",
 			getMockErr:        nil,
 			defaultFn:         defaultFn,
-			expectedValue:     "cached-value",
+			expectedVal:       "cached-value",
 			expectedErr:       nil,
 			expectedSetCalled: false,
 		},
 		{
-			name:              "should set and return default value if cache miss",
+			name:              "should set and return default value when cache miss",
 			key:               key,
-			getMockValue:      nil,
+			getMockVal:        nil,
 			getMockErr:        ErrCacheMiss,
 			setMockErr:        nil,
 			defaultFn:         defaultFn,
-			expectedValue:     defaultValue,
+			expectedVal:       defaultValue,
 			expectedErr:       nil,
 			expectedSetCalled: true,
 		},
 		{
-			name:              "should return error from Get if not cache miss",
+			name:              "should return error when Get returns a non-cache-miss error",
 			key:               key,
-			getMockValue:      nil,
+			getMockVal:        nil,
 			getMockErr:        errors.New("get error"),
 			defaultFn:         defaultFn,
-			expectedValue:     nil,
+			expectedVal:       nil,
 			expectedErr:       errors.New("get error"),
 			expectedSetCalled: false,
 		},
 		{
-			name:              "should return error from defaultFn if cache miss and defaultFn fails",
+			name:              "should return error when defaultFn fails after cache miss",
 			key:               key,
-			getMockValue:      nil,
+			getMockVal:        nil,
 			getMockErr:        ErrCacheMiss,
 			setMockErr:        nil,
 			defaultFn:         defaultFnErr,
-			expectedValue:     nil,
+			expectedVal:       nil,
 			expectedErr:       errors.New("default function error"),
 			expectedSetCalled: false,
 		},
 		{
-			name:              "should return default value but also error if Set fails after cache miss",
+			name:              "should return default value but also return error when Set fails after cache miss",
 			key:               key,
-			getMockValue:      nil,
+			getMockVal:        nil,
 			getMockErr:        ErrCacheMiss,
 			setMockErr:        errors.New("set error"),
 			defaultFn:         defaultFn,
-			expectedValue:     defaultValue,
+			expectedVal:       defaultValue,
 			expectedErr:       errors.New("set error"),
 			expectedSetCalled: true,
-		},
-		{
-			name:              "should return error if Get returns non-cache-miss error",
-			key:               key,
-			getMockValue:      nil,
-			getMockErr:        errors.New("some random error"),
-			defaultFn:         defaultFn,
-			expectedValue:     nil,
-			expectedErr:       errors.New("some random error"),
-			expectedSetCalled: false,
 		},
 	}
 
@@ -180,42 +163,44 @@ func TestManager_GetOrSet(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			// Arrange
+			// --- Arrange ---
 			ctx := context.Background()
+			mockStore := omnicachemock.NewMockStore(t)
 
-			mockStore := new(omnicachemock.MockStore)
-			mockStore.GetFunc = func(_ context.Context, key string) (any, error) {
-				assert.Equal(t, tt.key, key, "expected correct key to be used in Get")
-				return tt.getMockValue, tt.getMockErr
-			}
-			mockStore.SetFunc = func(_ context.Context, key string, value any, duration time.Duration) error {
-				assert.Equal(t, tt.key, key, "expected correct key to be used in Set")
-				assert.Equal(t, tt.expectedValue, value, "expected correct value to be set")
-				assert.Equal(t, ttl, duration, "expected correct ttl to be used in Set")
-				return tt.setMockErr
+			// Mock Get
+			mockStore.Mock.On("Get", ctx, tt.key).Return(tt.getMockVal, tt.getMockErr)
+
+			// Mock Set only when relevant
+			if tt.expectedSetCalled {
+				expectedVal, _ := tt.defaultFn()
+				mockStore.Mock.On("Set", ctx, tt.key, expectedVal, ttl).Return(tt.setMockErr)
 			}
 
 			manager := &Manager{store: mockStore}
 
-			// Act
+			// --- Act ---
 			result, err := manager.GetOrSet(ctx, tt.key, ttl, tt.defaultFn)
 
-			// Assert
-			mockStore.CalledOnce(t, "Get")
+			// --- Assert ---
+			mockStore.Mock.AssertCalled(t, "Get", ctx, tt.key)
 
 			if tt.expectedSetCalled {
-				mockStore.CalledOnce(t, "Set")
+				mockStore.Mock.AssertCalled(t, "Set", ctx, tt.key, tt.expectedVal, ttl)
+			} else {
+				mockStore.Mock.AssertNotCalled(t, "Set", ctx, tt.key, tt.expectedVal, ttl)
 			}
 
+			mockStore.Mock.AssertExpectations(t)
+
 			if tt.expectedErr != nil {
-				assert.Error(t, err, "expected error")
-				assert.Equal(t, tt.expectedErr.Error(), err.Error(), "expected correct error message")
-				assert.Equal(t, tt.expectedValue, result, "expected correct value on error")
+				assert.Error(t, err, "must return an error when GetOrSet fails")
+				assert.EqualError(t, tt.expectedErr, err, "error returned by GetOrSet must match the expected error")
+				assert.Equal(t, tt.expectedVal, result, "returned value on error must match the expected value")
 				return
 			}
 
-			assert.NoError(t, err, "expected no error")
-			assert.Equal(t, tt.expectedValue, result, "expected correct value")
+			assert.NoError(t, err, "must not return an error when GetOrSet succeeds")
+			assert.Equal(t, tt.expectedVal, result, "returned value must match the expected value")
 		})
 	}
 }
@@ -226,44 +211,44 @@ func TestManager_Has(t *testing.T) {
 	key := "test-key"
 
 	tests := []struct {
-		name          string
-		key           string
-		mockValue     bool
-		mockErr       error
-		expectedValue bool
-		expectedErr   error
+		name        string
+		key         string
+		mockVal     bool
+		mockErr     error
+		expectedVal bool
+		expectedErr error
 	}{
 		{
-			name:          "should return true if key exists",
-			key:           key,
-			mockValue:     true,
-			mockErr:       nil,
-			expectedValue: true,
-			expectedErr:   nil,
+			name:        "should return true when the key exists",
+			key:         key,
+			mockVal:     true,
+			mockErr:     nil,
+			expectedVal: true,
+			expectedErr: nil,
 		},
 		{
-			name:          "should return false if key does not exist",
-			key:           key,
-			mockValue:     false,
-			mockErr:       nil,
-			expectedValue: false,
-			expectedErr:   nil,
+			name:        "should return false when the key does not exist",
+			key:         key,
+			mockVal:     false,
+			mockErr:     nil,
+			expectedVal: false,
+			expectedErr: nil,
 		},
 		{
-			name:          "should return false if key exists but is expired",
-			key:           key,
-			mockValue:     false,
-			mockErr:       nil,
-			expectedValue: false,
-			expectedErr:   nil,
+			name:        "should return false when the key exists but is expired",
+			key:         key,
+			mockVal:     false,
+			mockErr:     nil,
+			expectedVal: false,
+			expectedErr: nil,
 		},
 		{
-			name:          "should return error if store returns an error other than cache miss",
-			key:           key,
-			mockValue:     false,
-			mockErr:       errors.New("some other error"),
-			expectedValue: false,
-			expectedErr:   errors.New("some other error"),
+			name:        "should return an error when the store returns an error other than cache miss",
+			key:         key,
+			mockVal:     false,
+			mockErr:     errors.New("some other error"),
+			expectedVal: false,
+			expectedErr: errors.New("some other error"),
 		},
 	}
 
@@ -273,32 +258,29 @@ func TestManager_Has(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			// Arrange
+			// --- Arrange ---
 			ctx := context.Background()
-
-			mockStore := new(omnicachemock.MockStore)
-			mockStore.HasFunc = func(_ context.Context, key string) (bool, error) {
-				assert.Equal(t, tt.key, key, "expected correct key to be used")
-				return tt.mockValue, tt.mockErr
-			}
+			mockStore := omnicachemock.NewMockStore(t)
+			mockStore.Mock.On("Has", ctx, tt.key).Return(tt.mockVal, tt.mockErr)
 
 			manager := &Manager{store: mockStore}
 
-			// Act
+			// --- Act ---
 			result, err := manager.Has(ctx, tt.key)
 
-			// Assert
-			mockStore.CalledOnce(t, "Has")
+			// --- Assert ---
+			mockStore.Mock.AssertCalled(t, "Has", ctx, tt.key)
+			mockStore.Mock.AssertExpectations(t)
 
 			if tt.expectedErr != nil {
-				assert.Error(t, err, "expected error")
-				assert.Equal(t, tt.expectedErr.Error(), err.Error(), "expected correct error message")
-				assert.Equal(t, tt.expectedValue, result, "expected correct result on error")
+				assert.Error(t, err, "must return an error when Has fails")
+				assert.EqualError(t, tt.expectedErr, err, "error returned by Has must match the expected error")
+				assert.Equal(t, tt.expectedVal, result, "result returned on error must match the expected value")
 				return
 			}
 
-			assert.NoError(t, err, "expected no error")
-			assert.Equal(t, tt.expectedValue, result, "expected correct result")
+			assert.NoError(t, err, "must not return an error when Has succeeds")
+			assert.Equal(t, tt.expectedVal, result, "result returned by Has must match the expected value")
 		})
 	}
 }
@@ -316,23 +298,23 @@ func TestManager_Set(t *testing.T) {
 		value       any
 		ttl         time.Duration
 		mockErr     error
-		expectedErr bool
+		expectedErr error
 	}{
 		{
-			name:        "should set value successfully",
+			name:        "should set the value successfully when the operation succeeds",
 			key:         key,
 			value:       value,
 			ttl:         ttl,
 			mockErr:     nil,
-			expectedErr: false,
+			expectedErr: nil,
 		},
 		{
-			name:        "should return error when set fails",
+			name:        "should return an error when the Set operation fails",
 			key:         key,
 			value:       value,
 			ttl:         ttl,
 			mockErr:     errors.New("set failed"),
-			expectedErr: true,
+			expectedErr: errors.New("set failed"),
 		},
 	}
 
@@ -342,32 +324,27 @@ func TestManager_Set(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			// Arrange
+			// --- Arrange ---
 			ctx := context.Background()
-
-			mockStore := new(omnicachemock.MockStore)
-			mockStore.SetFunc = func(_ context.Context, key string, value any, ttl time.Duration) error {
-				assert.Equal(t, tt.key, key, "expected correct key to be used")
-				assert.Equal(t, tt.value, value, "expected correct value to be used")
-				assert.Equal(t, tt.ttl, ttl, "expected correct ttl to be used")
-
-				return tt.mockErr
-			}
+			mockStore := omnicachemock.NewMockStore(t)
+			mockStore.Mock.On("Set", ctx, tt.key, value, ttl).Return(tt.mockErr)
 
 			manager := &Manager{store: mockStore}
 
-			// Act
+			// --- Act ---
 			err := manager.Set(ctx, tt.key, tt.value, tt.ttl)
 
-			// Assert
-			mockStore.CalledOnce(t, "Set")
+			// --- Assert ---
+			mockStore.Mock.AssertCalled(t, "Set", ctx, tt.key, value, ttl)
+			mockStore.Mock.AssertExpectations(t)
 
-			if tt.expectedErr {
-				assert.ErrorIs(t, err, tt.mockErr, "expected error when set fails")
+			if tt.expectedErr != nil {
+				assert.Error(t, err, "must return an error when Set fails")
+				assert.EqualError(t, tt.expectedErr, err, "error returned by Set must match the expected error")
 				return
 			}
 
-			assert.NoError(t, err, "expected no error when set succeeds")
+			assert.NoError(t, err, "must not return an error when Set succeeds")
 		})
 	}
 }

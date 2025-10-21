@@ -26,7 +26,16 @@ func (m *Manager) GetOrSet(ctx context.Context, key string, ttl time.Duration, d
 		return nil, err
 	}
 
-	return getOrSetDefault(ctx, m, key, ttl, defaultFn)
+	defaultValue, err := defaultFn()
+	if err != nil {
+		return nil, err
+	}
+
+	if err := m.Set(ctx, key, defaultValue, ttl); err != nil {
+		return defaultValue, err
+	}
+
+	return defaultValue, nil
 }
 
 // Has reports whether the given key exists and is not expired.
