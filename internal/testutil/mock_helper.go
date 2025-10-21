@@ -100,6 +100,30 @@ func (m *MockHelper) AssertNotCalled(t *testing.T, method string, args ...any) {
 	}
 }
 
+// AssertCalledCount checks how many times a method was called (optionally with specific arguments).
+func (m *MockHelper) AssertCalledCount(t *testing.T, method string, expectedCount int, args ...any) {
+	t.Helper()
+
+	count := 0
+	for _, c := range m.calls {
+		if c.Method != method {
+			continue
+		}
+		if len(args) > 0 && !reflect.DeepEqual(c.Args, args) {
+			continue
+		}
+		count++
+	}
+
+	if count != expectedCount {
+		if len(args) > 0 {
+			t.Fatalf("expected %s to be called %d time(s) with %+v, but was called %d time(s)", method, expectedCount, args, count)
+		} else {
+			t.Fatalf("expected %s to be called %d time(s), but was called %d time(s)", method, expectedCount, count)
+		}
+	}
+}
+
 // AssertExpectations ensures all expected calls were made.
 func (m *MockHelper) AssertExpectations(t *testing.T) {
 	t.Helper()

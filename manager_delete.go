@@ -50,8 +50,17 @@ func (m *Manager) DeleteManyByPattern(ctx context.Context, patterns ...string) e
 	wg.Wait()
 	close(errCh)
 
+	var firstError error
 	for err := range errCh {
-		return err
+		if err != nil {
+			firstError = err
+			break
+		}
 	}
+
+	if firstError != nil {
+		return firstError
+	}
+
 	return nil
 }
