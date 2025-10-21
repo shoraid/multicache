@@ -4,19 +4,20 @@ import (
 	"testing"
 
 	"github.com/shoraid/omnicache/contract"
+	"github.com/shoraid/omnicache/internal/assert"
 	omnicachemock "github.com/shoraid/omnicache/mock"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
-func TestNewManager(t *testing.T) {
+func TestManager_NewManager(t *testing.T) {
 	t.Parallel()
 
+	// --- Act ---
 	manager := NewManager()
 
-	require.NotNil(t, manager, "expected NewManager to return a non-nil instance")
-	assert.Empty(t, manager.stores, "expected stores map to be initialized empty")
-	assert.Nil(t, manager.store, "expected default store to be nil")
+	// --- Assert ---
+	assert.NotNil(t, manager, "NewManager must return a non-nil Manager instance")
+	assert.Empty(t, manager.stores, "the stores map must be initialized but start empty")
+	assert.Nil(t, manager.store, "the default store must be nil when no stores have been registered yet")
 }
 
 func TestManager_Register(t *testing.T) {
@@ -31,20 +32,20 @@ func TestManager_Register(t *testing.T) {
 		storeToRegister      contract.Store
 		setup                func(m *Manager)
 		expectedErr          error
-		expectedStoreCount   int
+		expectedStoreLen     int
 		expectedDefaultStore contract.Store
 	}{
 		{
-			name:                 "should register first store as default",
+			name:                 "should register the first store as default when no stores exist",
 			alias:                "store1",
 			storeToRegister:      mockStore1,
 			setup:                func(m *Manager) {},
 			expectedErr:          nil,
-			expectedStoreCount:   1,
+			expectedStoreLen:     1,
 			expectedDefaultStore: mockStore1,
 		},
 		{
-			name:            "should register additional store without changing default",
+			name:            "should register a new store when another store already exists without changing the default",
 			alias:           "store2",
 			storeToRegister: mockStore2,
 			setup: func(m *Manager) {
@@ -52,11 +53,11 @@ func TestManager_Register(t *testing.T) {
 				m.store = mockStore1
 			},
 			expectedErr:          nil,
-			expectedStoreCount:   2,
+			expectedStoreLen:     2,
 			expectedDefaultStore: mockStore1,
 		},
 		{
-			name:            "should return error if alias already registered",
+			name:            "should return an error when alias is already registered",
 			alias:           "store1",
 			storeToRegister: mockStore2,
 			setup: func(m *Manager) {
@@ -64,7 +65,7 @@ func TestManager_Register(t *testing.T) {
 				m.store = mockStore1
 			},
 			expectedErr:          ErrStoreAlreadyRegistered,
-			expectedStoreCount:   1,
+			expectedStoreLen:     1,
 			expectedDefaultStore: mockStore1,
 		},
 	}
@@ -75,22 +76,26 @@ func TestManager_Register(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
+			// --- Arrange ---
 			manager := &Manager{
 				stores: make(map[string]contract.Store),
 			}
-
 			tt.setup(manager)
 
+			// --- Act ---
 			err := manager.Register(tt.alias, tt.storeToRegister)
 
+			// --- Assert ---
 			if tt.expectedErr != nil {
-				assert.ErrorIs(t, err, tt.expectedErr, "expected error")
-			} else {
-				assert.NoError(t, err, "expected no error")
-				assert.Equal(t, tt.expectedStoreCount, len(manager.stores), "expected correct number of registered stores")
-				assert.Equal(t, tt.storeToRegister, manager.stores[tt.alias], "expected store to be registered under alias")
-				assert.Equal(t, tt.expectedDefaultStore, manager.store, "expected correct default store")
+				assert.Error(t, err, "must return an error when Register fails")
+				assert.EqualError(t, tt.expectedErr, err, "the error returned by Register must match the expected error")
+				return
 			}
+
+			assert.NoError(t, err, "must not return an error when Register succeeds")
+			assert.Equal(t, tt.expectedStoreLen, len(manager.stores), "the number of registered stores must match the expected count")
+			assert.Equal(t, tt.storeToRegister, manager.stores[tt.alias], "the registered store under alias must match the provided store instance")
+			assert.Equal(t, tt.expectedDefaultStore, manager.store, "the default store must be set or preserved correctly after registration")
 		})
 	}
 }
@@ -109,7 +114,7 @@ func TestManager_SetDefault(t *testing.T) {
 		expectedDefaultStore contract.Store
 	}{
 		{
-			name:       "should set default store successfully",
+			name:       "should set the specified store as the new default when alias exists",
 			aliasToSet: "store2",
 			setup: func(m *Manager) {
 				m.stores["store1"] = mockStore1
@@ -120,7 +125,7 @@ func TestManager_SetDefault(t *testing.T) {
 			expectedDefaultStore: mockStore2,
 		},
 		{
-			name:       "should return error if alias does not exist",
+			name:       "should return an error when alias does not exist and preserve the current default store",
 			aliasToSet: "nonexistent",
 			setup: func(m *Manager) {
 				m.stores["store1"] = mockStore1
@@ -130,7 +135,7 @@ func TestManager_SetDefault(t *testing.T) {
 			expectedDefaultStore: mockStore1, // default should not change
 		},
 		{
-			name:       "should not change default if setting to current default",
+			name:       "should not change the default store when alias is already the current default",
 			aliasToSet: "store1",
 			setup: func(m *Manager) {
 				m.stores["store1"] = mockStore1
@@ -147,20 +152,25 @@ func TestManager_SetDefault(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
+			// --- Arrange ---
 			manager := &Manager{
 				stores: make(map[string]contract.Store),
 			}
-
 			tt.setup(manager)
 
+			// --- Act ---
 			err := manager.SetDefault(tt.aliasToSet)
 
+			// --- Assert ---
 			if tt.expectedErr != nil {
-				assert.ErrorIs(t, err, tt.expectedErr, "expected error")
-			} else {
-				assert.NoError(t, err, "expected no error")
-				assert.Equal(t, tt.expectedDefaultStore, manager.store, "expected correct default store")
+				assert.Error(t, err, "must return an error when SetDefault fails")
+				assert.EqualError(t, tt.expectedErr, err, "the error returned by SetDefault must match the expected error")
+				assert.Equal(t, tt.expectedDefaultStore, manager.store, "the default store must remain unchanged when SetDefault fails")
+				return
 			}
+
+			assert.NoError(t, err, "must not return an error when SetDefault succeeds")
+			assert.Equal(t, tt.expectedDefaultStore, manager.store, "the default store must be updated to the specified alias when SetDefault succeeds")
 		})
 	}
 }

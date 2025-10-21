@@ -2,128 +2,101 @@ package omnicachemock
 
 import (
 	"context"
-	"sync"
 	"testing"
 	"time"
+
+	"github.com/shoraid/omnicache/internal/testutil"
 )
 
-// MockStore is a thread-safe manual mock for contract.Store.
+// MockStore is a lightweight mock for contract.Store, powered by testutil.MockHelper.
 type MockStore struct {
-	mu sync.RWMutex
-
-	ClearFunc           func(ctx context.Context) error
-	DeleteFunc          func(ctx context.Context, key string) error
-	DeleteByPatternFunc func(ctx context.Context, pattern string) error
-	DeleteManyFunc      func(ctx context.Context, keys ...string) error
-	GetFunc             func(ctx context.Context, key string) (any, error)
-	HasFunc             func(ctx context.Context, key string) (bool, error)
-	SetFunc             func(ctx context.Context, key string, value any, ttl time.Duration) error
-
-	Calls []string
+	Mock *testutil.MockHelper
 }
 
-func (m *MockStore) recordCall(method string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.Calls = append(m.Calls, method)
+// NewMockStore creates a new mock store.
+func NewMockStore(t *testing.T) *MockStore {
+	return &MockStore{Mock: testutil.NewMockHelper(t)}
 }
+
+// --- Store method mocks ---
 
 func (m *MockStore) Clear(ctx context.Context) error {
-	m.recordCall("Clear")
-	if m.ClearFunc != nil {
-		return m.ClearFunc(ctx)
+	args := m.Mock.Called("Clear", ctx)
+	if len(args) == 0 {
+		return nil
+	}
+	if err, ok := args[0].(error); ok {
+		return err
 	}
 	return nil
 }
 
 func (m *MockStore) Delete(ctx context.Context, key string) error {
-	m.recordCall("Delete")
-	if m.DeleteFunc != nil {
-		return m.DeleteFunc(ctx, key)
+	args := m.Mock.Called("Delete", ctx, key)
+	if len(args) == 0 {
+		return nil
+	}
+	if err, ok := args[0].(error); ok {
+		return err
 	}
 	return nil
 }
 
 func (m *MockStore) DeleteByPattern(ctx context.Context, pattern string) error {
-	m.recordCall("DeleteByPattern")
-	if m.DeleteByPatternFunc != nil {
-		return m.DeleteByPatternFunc(ctx, pattern)
+	args := m.Mock.Called("DeleteByPattern", ctx, pattern)
+	if len(args) == 0 {
+		return nil
+	}
+	if err, ok := args[0].(error); ok {
+		return err
 	}
 	return nil
 }
 
 func (m *MockStore) DeleteMany(ctx context.Context, keys ...string) error {
-	m.recordCall("DeleteMany")
-	if m.DeleteManyFunc != nil {
-		return m.DeleteManyFunc(ctx, keys...)
+	args := m.Mock.Called("DeleteMany", ctx, keys)
+	if len(args) == 0 {
+		return nil
+	}
+	if err, ok := args[0].(error); ok {
+		return err
 	}
 	return nil
 }
 
 func (m *MockStore) Get(ctx context.Context, key string) (any, error) {
-	m.recordCall("Get")
-	if m.GetFunc != nil {
-		return m.GetFunc(ctx, key)
+	args := m.Mock.Called("Get", ctx, key)
+	if len(args) >= 2 {
+		return args[0], asError(args[1])
 	}
 	return nil, nil
 }
 
 func (m *MockStore) Has(ctx context.Context, key string) (bool, error) {
-	m.recordCall("Has")
-	if m.HasFunc != nil {
-		return m.HasFunc(ctx, key)
+	args := m.Mock.Called("Has", ctx, key)
+	if len(args) >= 2 {
+		val, _ := args[0].(bool)
+		return val, asError(args[1])
 	}
 	return false, nil
 }
 
 func (m *MockStore) Set(ctx context.Context, key string, value any, ttl time.Duration) error {
-	m.recordCall("Set")
-	if m.SetFunc != nil {
-		return m.SetFunc(ctx, key, value, ttl)
+	args := m.Mock.Called("Set", ctx, key, value, ttl)
+	if len(args) == 0 {
+		return nil
+	}
+	return asError(args[0])
+}
+
+// --- Helpers ---
+
+func asError(v any) error {
+	if v == nil {
+		return nil
+	}
+	if err, ok := v.(error); ok {
+		return err
 	}
 	return nil
-}
-
-// Reset clears all mock behaviors and recorded calls.
-func (m *MockStore) Reset() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	m.ClearFunc = nil
-	m.DeleteFunc = nil
-	m.DeleteByPatternFunc = nil
-	m.DeleteManyFunc = nil
-	m.GetFunc = nil
-	m.HasFunc = nil
-	m.SetFunc = nil
-	m.Calls = nil
-}
-
-// CallCount returns the number of times a method was called.
-func (m *MockStore) CallCount(method string) int {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	count := 0
-	for _, c := range m.Calls {
-		if c == method {
-			count++
-		}
-	}
-	return count
-}
-
-func (m *MockStore) CalledOnce(t *testing.T, method string) {
-	t.Helper()
-	count := m.CallCount(method)
-	if count != 1 {
-		t.Fatalf("expected %s to be called once, but was called %d times", method, count)
-	}
-}
-
-func (m *MockStore) NotCalled(t *testing.T, method string) {
-	t.Helper()
-	count := m.CallCount(method)
-	if count > 0 {
-		t.Fatalf("expected %s not to be called, but it was called %d times", method, count)
-	}
 }
