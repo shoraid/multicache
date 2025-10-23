@@ -1,933 +1,359 @@
 package omnicache
 
 import (
-	"context"
-	"errors"
 	"testing"
-	"time"
 
-	omnicachemock "github.com/shoraid/omnicache/mock"
-	"github.com/stretchr/testify/assert"
+	"github.com/shoraid/omnicache/internal/assert"
 )
 
-func TestHelper_toBool(t *testing.T) {
+func TestHelper_convertAnyToType(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name        string
-		input       any
-		expected    bool
-		expectedErr error
-	}{
-		// True
-		{
-			name:        "from bool true",
-			input:       true,
-			expected:    true,
-			expectedErr: nil,
-		},
-		{
-			name:        "from string 'true'",
-			input:       "true",
-			expected:    true,
-			expectedErr: nil,
-		},
-		{
-			name:        "from []byte 'true'",
-			input:       []byte("true"),
-			expected:    true,
-			expectedErr: nil,
-		},
-		{
-			name:        "from string '1'",
-			input:       "1",
-			expected:    true,
-			expectedErr: nil,
-		},
-		{
-			name:        "from int 1",
-			input:       1,
-			expected:    true,
-			expectedErr: nil,
-		},
-		{
-			name:        "from int64 1",
-			input:       int64(1),
-			expected:    true,
-			expectedErr: nil,
-		},
-		{
-			name:        "from float64 1.0",
-			input:       1.0,
-			expected:    true,
-			expectedErr: nil,
-		},
-		{
-			name:        "from float32 1.0",
-			input:       float32(1.0),
-			expected:    true,
-			expectedErr: nil,
-		},
+	type dummy struct {
+		Name string
+		Age  int
+	}
 
-		// False
+	tests := []struct {
+		name      string
+		input     any
+		expected  any
+		expectErr bool
+	}{
+		// --- Direct type match ---
+		{name: "direct string", input: "hello", expected: "hello", expectErr: false},
+		{name: "direct int", input: 123, expected: 123, expectErr: false},
+		{name: "direct bool", input: true, expected: true, expectErr: false},
+		{name: "direct []byte", input: []byte("bytes"), expected: []byte("bytes"), expectErr: false},
+		{name: "direct struct", input: dummy{Name: "Test", Age: 1}, expected: dummy{Name: "Test", Age: 1}, expectErr: false},
+
+		// --- From string conversions ---
+		{name: "string to int", input: "123", expected: 123, expectErr: false},
+		{name: "string to int64", input: "9876543210", expected: int64(9876543210), expectErr: false},
+		{name: "string to float64", input: "123.45", expected: 123.45, expectErr: false},
+		{name: "string to bool (true)", input: "true", expected: true, expectErr: false},
+		{name: "string to bool (false)", input: "false", expected: false, expectErr: false},
+		{name: "string to []byte", input: "byte_string", expected: []byte("byte_string"), expectErr: false},
+		{name: "string to struct (JSON)", input: `{"Name":"Test","Age":30}`, expected: dummy{Name: "Test", Age: 30}, expectErr: false},
+		{name: "string to []string (JSON)", input: `["a","b"]`, expected: []string{"a", "b"}, expectErr: false},
+
+		// --- From []byte conversions ---
+		{name: "[]byte to string", input: []byte("hello"), expected: "hello", expectErr: false},
+		{name: "[]byte to int", input: []byte("123"), expected: 123, expectErr: false},
+		{name: "[]byte to int64", input: []byte("9876543210"), expected: int64(9876543210), expectErr: false},
+		{name: "[]byte to float64", input: []byte("123.45"), expected: 123.45, expectErr: false},
+		{name: "[]byte to bool (true)", input: []byte("true"), expected: true, expectErr: false},
+		{name: "[]byte to bool (false)", input: []byte("false"), expected: false, expectErr: false},
+		{name: "[]byte to struct (JSON)", input: []byte(`{"Name":"Test","Age":30}`), expected: dummy{Name: "Test", Age: 30}, expectErr: false},
+		{name: "[]byte to []string (JSON)", input: []byte(`["a","b"]`), expected: []string{"a", "b"}, expectErr: false},
+
+		// --- From number conversions ---
+		{name: "int to string", input: 123, expected: "123", expectErr: false},
+		{name: "int to float64", input: 123, expected: 123.0, expectErr: false},
+		{name: "int64 to string", input: int64(9876543210), expected: "9876543210", expectErr: false},
+		{name: "float64 to string", input: 123.45, expected: "123.45", expectErr: false},
+		{name: "bool to string", input: true, expected: "true", expectErr: false},
+
+		// --- JSON fallback conversions (for types not directly handled) ---
+		{name: "struct to string (JSON)", input: dummy{Name: "Test", Age: 30}, expected: `{"Name":"Test","Age":30}`, expectErr: false},
+		{name: "[]int to string (JSON)", input: []int{1, 2, 3}, expected: `[1,2,3]`, expectErr: false},
+
+		// --- Error cases ---
+		{name: "nil input", input: nil, expected: nil, expectErr: true},
+		{name: "unsupported conversion (string to struct with bad JSON)", input: `{"Name":"Test",Age:30}`, expected: dummy{}, expectErr: true},
+		{name: "unsupported conversion (int to struct)", input: 123, expected: dummy{}, expectErr: true},
+		{name: "unsupported conversion (string to int with bad string)", input: "abc", expected: 0, expectErr: true},
+		{name: "unsupported conversion ([]byte to int with bad bytes)", input: []byte("abc"), expected: 0, expectErr: true},
+
+		// --- Force marshal error branch ---
+		{name: "marshal error (unsupported type like channel)", input: make(chan int), expected: "", expectErr: true},
+		{name: "string to struct via JSON with invalid syntax", input: `{"Name":"Test",Age:30}`, expected: dummy{}, expectErr: true},
+		{name: "string to []string via JSON with invalid syntax", input: `["a","b"`, expected: []string{}, expectErr: true},
 		{
-			name:        "from bool false",
-			input:       false,
-			expected:    false,
-			expectedErr: nil,
+			name:      "struct to map[string]any via JSON round-trip",
+			input:     dummy{Name: "Test", Age: 30},
+			expected:  map[string]any{"Name": "Test", "Age": float64(30)},
+			expectErr: false,
 		},
 		{
-			name:        "from string 'false'",
-			input:       "false",
-			expected:    false,
-			expectedErr: nil,
+			name:      "map[string]any to struct via JSON round-trip",
+			input:     map[string]any{"Name": "Test", "Age": 30},
+			expected:  dummy{Name: "Test", Age: 30},
+			expectErr: false,
 		},
 		{
-			name:        "from []byte 'false'",
-			input:       []byte("false"),
-			expected:    false,
-			expectedErr: nil,
+			name:      "fallback round-trip marshal error (unsupported type func)",
+			input:     struct{ F func() }{F: func() {}},
+			expected:  dummy{}, // zero value of target type
+			expectErr: true,
 		},
 		{
-			name:        "from string '0'",
-			input:       "0",
-			expected:    false,
-			expectedErr: nil,
+			name:      "fallback round-trip unmarshal error (type mismatch)",
+			input:     map[string]any{"Name": "Test", "Age": "not-a-number"}, // valid JSON but invalid for dummy.Age (expects int)
+			expected:  dummy{},                                               // zero value for T
+			expectErr: true,
 		},
-		{
-			name:        "from int 0",
-			input:       0,
-			expected:    false,
-			expectedErr: nil,
-		},
-		{
-			name:        "from int64 0",
-			input:       int64(0),
-			expected:    false,
-			expectedErr: nil,
-		},
-		{
-			name:        "from float64 0.0",
-			input:       0.0,
-			expected:    false,
-			expectedErr: nil,
-		},
-		{
-			name:        "from float32 0.0",
-			input:       float32(0.0),
-			expected:    false,
-			expectedErr: nil,
-		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			// --- Act ---
+			var result any
+			var err error
+
+			switch tt.expected.(type) {
+			case string:
+				result, err = convertAnyToType[string](tt.input)
+			case int:
+				result, err = convertAnyToType[int](tt.input)
+			case int64:
+				result, err = convertAnyToType[int64](tt.input)
+			case float64:
+				result, err = convertAnyToType[float64](tt.input)
+			case bool:
+				result, err = convertAnyToType[bool](tt.input)
+			case []byte:
+				result, err = convertAnyToType[[]byte](tt.input)
+			case dummy:
+				result, err = convertAnyToType[dummy](tt.input)
+			case []string:
+				result, err = convertAnyToType[[]string](tt.input)
+			case []int:
+				result, err = convertAnyToType[[]int](tt.input)
+			case nil:
+				result, err = convertAnyToType[any](tt.input)
+			case map[string]any:
+				result, err = convertAnyToType[map[string]any](tt.input)
+			default:
+				t.Fatalf("unsupported type in test: %T", tt.expected)
+			}
+
+			if tt.expectErr {
+				assert.Error(t, err, "must return an error when conversion fails")
+				assert.Equal(t, tt.expected, result, "result on error must be the zero value of the target type")
+				return
+			}
+
+			assert.NoError(t, err, "must not return an error when conversion succeeds")
+			assert.Equal(t, tt.expected, result, "converted value must match the expected value")
+		})
+	}
+}
+
+func TestHelper_fromString(t *testing.T) {
+	t.Parallel()
+
+	type dummy struct {
+		Name string
+		Age  int
+	}
+
+	tests := []struct {
+		name      string
+		input     string
+		expected  any
+		expectErr bool
+	}{
+		// Valid
+		{name: "to string", input: "hello", expected: "hello", expectErr: false},
+		{name: "to int", input: "123", expected: 123, expectErr: false},
+		{name: "to int64", input: "9876543210", expected: int64(9876543210), expectErr: false},
+		{name: "to float64", input: "123.45", expected: 123.45, expectErr: false},
+		{name: "to bool true", input: "true", expected: true, expectErr: false},
+		{name: "1 to bool true", input: "1", expected: true, expectErr: false},
+		{name: "to bool false", input: "false", expected: false, expectErr: false},
+		{name: "0 to bool false", input: "0", expected: false, expectErr: false},
+		{name: "to []byte", input: "byte_string", expected: []byte("byte_string"), expectErr: false},
+		{name: "to []string from JSON", input: `["a", "b"]`, expected: []string{"a", "b"}, expectErr: false},
+		{name: "to []int from JSON", input: `[1, 2]`, expected: []int{1, 2}, expectErr: false},
+		{name: "to struct from JSON", input: `{"Name":"Test","Age":30}`, expected: dummy{Name: "Test", Age: 30}, expectErr: false},
+		{name: "to uint", input: "123", expected: uint(123), expectErr: false},
+		{name: "to uint64", input: "9876543210", expected: uint64(9876543210), expectErr: false},
 
 		// Invalid
-		{
-			name:        "from string invalid",
-			input:       "not a bool",
-			expected:    false,
-			expectedErr: errors.New("strconv.ParseBool: parsing \"not a bool\": invalid syntax"),
-		},
-		{
-			name:        "from []byte invalid",
-			input:       []byte("not a bool"),
-			expected:    false,
-			expectedErr: errors.New("strconv.ParseBool: parsing \"not a bool\": invalid syntax"),
-		},
-		{
-			name:        "from unsupported type",
-			input:       struct{}{},
-			expected:    false,
-			expectedErr: errors.New("convert: cannot cast struct {} to bool"),
-		},
+		{name: "invalid string to int", input: "abc", expected: 0, expectErr: true},
+		{name: "invalid string to int64", input: "def", expected: int64(0), expectErr: true},
+		{name: "invalid string to float64", input: "xyz", expected: 0.0, expectErr: true},
+		{name: "invalid string to bool", input: "not_a_bool", expected: false, expectErr: true},
+		{name: "invalid string to uint", input: "-123", expected: uint(0), expectErr: true},
+		{name: "invalid string to uint64", input: "-9876543210", expected: uint64(0), expectErr: true},
 	}
 
 	for _, tt := range tests {
 		tt := tt
-
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			// Act
-			result, err := toBool(tt.input)
+			var result any
+			var err error
 
-			// Assert
-			if tt.expectedErr != nil {
-				assert.Error(t, err)
-				assert.EqualError(t, err, tt.expectedErr.Error())
+			switch tt.expected.(type) {
+			case string:
+				result, err = fromString[string](tt.input)
+			case int:
+				result, err = fromString[int](tt.input)
+			case int64:
+				result, err = fromString[int64](tt.input)
+			case float64:
+				result, err = fromString[float64](tt.input)
+			case bool:
+				result, err = fromString[bool](tt.input)
+			case []byte:
+				result, err = fromString[[]byte](tt.input)
+			case []string:
+				result, err = fromString[[]string](tt.input)
+			case []int:
+				result, err = fromString[[]int](tt.input)
+			case dummy:
+				result, err = fromString[dummy](tt.input)
+			case uint:
+				result, err = fromString[uint](tt.input)
+			case uint64:
+				result, err = fromString[uint64](tt.input)
+			default:
+				t.Fatalf("unsupported type in test: %T", tt.expected)
+			}
+
+			if tt.expectErr {
+				assert.Error(t, err, "must return an error when conversion fails")
+				assert.Equal(t, tt.expected, result, "result on error must be the zero value of the target type")
 				return
 			}
 
-			assert.NoError(t, err)
-			assert.Equal(t, tt.expected, result)
+			assert.NoError(t, err, "must not return an error when conversion succeeds")
+			assert.Equal(t, tt.expected, result, "converted value must match the expected value")
 		})
 	}
 }
 
-func TestHelper_toInt(t *testing.T) {
+func TestHelper_fromBytes(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name        string
-		input       any
-		expected    int
-		expectedErr error
-	}{
-		// Valid conversions
-		{
-			name:        "from string valid int",
-			input:       "456",
-			expected:    456,
-			expectedErr: nil,
-		},
-		{
-			name:        "from []byte valid int",
-			input:       []byte("789"),
-			expected:    789,
-			expectedErr: nil,
-		},
-		{
-			name:        "from int",
-			input:       123,
-			expected:    123,
-			expectedErr: nil,
-		},
-		{
-			name:        "from int8",
-			input:       int8(12),
-			expected:    12,
-			expectedErr: nil,
-		},
-		{
-			name:        "from int16",
-			input:       int16(1234),
-			expected:    1234,
-			expectedErr: nil,
-		},
-		{
-			name:        "from int32",
-			input:       int32(123456),
-			expected:    123456,
-			expectedErr: nil,
-		},
-		{
-			name:        "from int64",
-			input:       int64(1234567890),
-			expected:    1234567890,
-			expectedErr: nil,
-		},
-		{
-			name:        "from uint",
-			input:       uint(123),
-			expected:    123,
-			expectedErr: nil,
-		},
-		{
-			name:        "from uint8",
-			input:       uint8(12),
-			expected:    12,
-			expectedErr: nil,
-		},
-		{
-			name:        "from uint16",
-			input:       uint16(1234),
-			expected:    1234,
-			expectedErr: nil,
-		},
-		{
-			name:        "from uint32",
-			input:       uint32(123456),
-			expected:    123456,
-			expectedErr: nil,
-		},
-		{
-			name:        "from uint64",
-			input:       uint64(1234567890),
-			expected:    1234567890,
-			expectedErr: nil,
-		},
-		{
-			name:        "from float32",
-			input:       float32(123.45),
-			expected:    123,
-			expectedErr: nil,
-		},
-		{
-			name:        "from float64",
-			input:       123.45,
-			expected:    123,
-			expectedErr: nil,
-		},
-		{
-			name:        "from bool true",
-			input:       true,
-			expected:    1,
-			expectedErr: nil,
-		},
-		{
-			name:        "from bool false",
-			input:       false,
-			expected:    0,
-			expectedErr: nil,
-		},
-
-		// Invalid conversions
-		{
-			name:        "from string invalid int",
-			input:       "abc",
-			expected:    0,
-			expectedErr: errors.New("convert: failed to parse int from string: strconv.Atoi: parsing \"abc\": invalid syntax"),
-		},
-		{
-			name:        "from []byte invalid int",
-			input:       []byte("xyz"),
-			expected:    0,
-			expectedErr: errors.New("convert: failed to parse int from bytes: strconv.Atoi: parsing \"xyz\": invalid syntax"),
-		},
-		{
-			name:        "from unsupported type",
-			input:       struct{}{},
-			expected:    0,
-			expectedErr: errors.New("convert: cannot cast struct {} to int"),
-		},
+	type dummy struct {
+		Name string
+		Age  int
 	}
-
-	for _, tt := range tests {
-		tt := tt
-
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			// Act
-			result, err := toInt(tt.input)
-
-			// Assert
-			if tt.expectedErr != nil {
-				assert.Error(t, err)
-				assert.EqualError(t, err, tt.expectedErr.Error())
-				return
-			}
-
-			assert.NoError(t, err)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
-func TestHelper_toInt64(t *testing.T) {
-	t.Parallel()
 
 	tests := []struct {
-		name        string
-		input       any
-		expected    int64
-		expectedErr error
+		name      string
+		input     []byte
+		expected  any
+		expectErr bool
 	}{
-		// Valid conversions
-		{
-			name:        "from string valid int64",
-			input:       "9876543210",
-			expected:    9876543210,
-			expectedErr: nil,
-		},
-		{
-			name:        "from []byte valid int64",
-			input:       []byte("1234567890"),
-			expected:    1234567890,
-			expectedErr: nil,
-		},
-		{
-			name:        "from int",
-			input:       123,
-			expected:    123,
-			expectedErr: nil,
-		},
-		{
-			name:        "from int8",
-			input:       int8(12),
-			expected:    12,
-			expectedErr: nil,
-		},
-		{
-			name:        "from int16",
-			input:       int16(1234),
-			expected:    1234,
-			expectedErr: nil,
-		},
-		{
-			name:        "from int32",
-			input:       int32(123456),
-			expected:    123456,
-			expectedErr: nil,
-		},
-		{
-			name:        "from int64",
-			input:       int64(987654321098765),
-			expected:    987654321098765,
-			expectedErr: nil,
-		},
-		{
-			name:        "from uint",
-			input:       uint(123),
-			expected:    123,
-			expectedErr: nil,
-		},
-		{
-			name:        "from uint8",
-			input:       uint8(12),
-			expected:    12,
-			expectedErr: nil,
-		},
-		{
-			name:        "from uint16",
-			input:       uint16(1234),
-			expected:    1234,
-			expectedErr: nil,
-		},
-		{
-			name:        "from uint32",
-			input:       uint32(123456),
-			expected:    123456,
-			expectedErr: nil,
-		},
-		{
-			name:        "from uint64",
-			input:       uint64(987654321098765),
-			expected:    987654321098765,
-			expectedErr: nil,
-		},
-		{
-			name:        "from float32",
-			input:       float32(123.45),
-			expected:    123,
-			expectedErr: nil,
-		},
-		{
-			name:        "from float64",
-			input:       123.45,
-			expected:    123,
-			expectedErr: nil,
-		},
-		{
-			name:        "from bool true",
-			input:       true,
-			expected:    1,
-			expectedErr: nil,
-		},
-		{
-			name:        "from bool false",
-			input:       false,
-			expected:    0,
-			expectedErr: nil,
-		},
-
-		// Invalid conversions
-		{
-			name:        "from string invalid int64",
-			input:       "abc",
-			expected:    0,
-			expectedErr: errors.New("convert: failed to parse int64 from string: strconv.ParseInt: parsing \"abc\": invalid syntax"),
-		},
-		{
-			name:        "from []byte invalid int64",
-			input:       []byte("xyz"),
-			expected:    0,
-			expectedErr: errors.New("convert: failed to parse int64 from bytes: strconv.ParseInt: parsing \"xyz\": invalid syntax"),
-		},
-		{
-			name:        "from unsupported type",
-			input:       struct{}{},
-			expected:    0,
-			expectedErr: errors.New("convert: cannot cast struct {} to int64"),
-		},
-	}
-
-	for _, tt := range tests {
-		tt := tt
-
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			// Act
-			result, err := toInt64(tt.input)
-
-			// Assert
-			if tt.expectedErr != nil {
-				assert.Error(t, err)
-				assert.EqualError(t, err, tt.expectedErr.Error())
-				return
-			}
-
-			assert.NoError(t, err)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
-func TestHelper_toInts(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name        string
-		input       any
-		expected    []int
-		expectedErr error
-	}{
-		{
-			name:        "from []int",
-			input:       []int{1, 2, 3},
-			expected:    []int{1, 2, 3},
-			expectedErr: nil,
-		},
-		{
-			name:        "from JSON string",
-			input:       "[4,5,6]",
-			expected:    []int{4, 5, 6},
-			expectedErr: nil,
-		},
-		{
-			name:        "from JSON []byte",
-			input:       []byte("[7,8,9]"),
-			expected:    []int{7, 8, 9},
-			expectedErr: nil,
-		},
-		{
-			name:        "from []float64",
-			input:       []float64{1.1, 2.9, 3.0},
-			expected:    []int{1, 2, 3},
-			expectedErr: nil,
-		},
-		{
-			name:        "from []any with floats and ints",
-			input:       []any{1.1, 2, 3.9},
-			expected:    []int{1, 2, 3},
-			expectedErr: nil,
-		},
-		{
-			name:        "from empty []int",
-			input:       []int{},
-			expected:    []int{},
-			expectedErr: nil,
-		},
-		{
-			name:        "from empty JSON string",
-			input:       "[]",
-			expected:    []int{},
-			expectedErr: nil,
-		},
-		{
-			name:        "from empty JSON []byte",
-			input:       []byte("[]"),
-			expected:    []int{},
-			expectedErr: nil,
-		},
-		{
-			name:        "from invalid JSON string",
-			input:       "invalid json",
-			expected:    nil,
-			expectedErr: ErrTypeMismatch,
-		},
-		{
-			name:        "from invalid JSON []byte",
-			input:       []byte("invalid json"),
-			expected:    nil,
-			expectedErr: ErrTypeMismatch,
-		},
-		{
-			name:        "from []any with unsupported type",
-			input:       []any{1, "two", 3},
-			expected:    nil,
-			expectedErr: ErrTypeMismatch,
-		},
-		{
-			name:        "from unsupported type",
-			input:       "not an array",
-			expected:    nil,
-			expectedErr: ErrTypeMismatch,
-		},
-		{
-			name:        "from nil",
-			input:       nil,
-			expected:    nil,
-			expectedErr: ErrTypeMismatch,
-		},
-	}
-
-	for _, tt := range tests {
-		tt := tt
-
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			// Act
-			result, err := toInts(tt.input)
-
-			// Assert
-			if tt.expectedErr != nil {
-				assert.Error(t, err)
-				assert.Equal(t, tt.expectedErr, err)
-				return
-			}
-
-			assert.NoError(t, err)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
-func TestHelper_toString(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name        string
-		input       any
-		expected    string
-		expectedErr error
-	}{
-		{
-			name:        "from string",
-			input:       "hello",
-			expected:    "hello",
-			expectedErr: nil,
-		},
-		{
-			name:        "from []byte",
-			input:       []byte("world"),
-			expected:    "world",
-			expectedErr: nil,
-		},
-
-		// Int
-		{
-			name:        "from int",
-			input:       123,
-			expected:    "123",
-			expectedErr: nil,
-		},
-		{
-			name:        "from int8",
-			input:       int8(12),
-			expected:    "12",
-			expectedErr: nil,
-		},
-		{
-			name:        "from int16",
-			input:       int16(123),
-			expected:    "123",
-			expectedErr: nil,
-		},
-		{
-			name:        "from int32",
-			input:       int32(12345),
-			expected:    "12345",
-			expectedErr: nil,
-		},
-		{
-			name:        "from int64",
-			input:       int64(4567890123),
-			expected:    "4567890123",
-			expectedErr: nil,
-		},
-
-		// Uint
-		{
-			name:        "from uint",
-			input:       uint(123),
-			expected:    "123",
-			expectedErr: nil,
-		},
-		{
-			name:        "from uint8",
-			input:       uint8(12),
-			expected:    "12",
-			expectedErr: nil,
-		},
-		{
-			name:        "from uint16",
-			input:       uint16(123),
-			expected:    "123",
-			expectedErr: nil,
-		},
-		{
-			name:        "from uint32",
-			input:       uint32(12345),
-			expected:    "12345",
-			expectedErr: nil,
-		},
-		{
-			name:        "from uint64",
-			input:       uint64(4567890123),
-			expected:    "4567890123",
-			expectedErr: nil,
-		},
-
-		// Float
-		{
-			name:        "from float32",
-			input:       float32(1.23),
-			expected:    "1.23",
-			expectedErr: nil,
-		},
-		{
-			name:        "from float64",
-			input:       4.567,
-			expected:    "4.567",
-			expectedErr: nil,
-		},
-
-		// Boolean
-		{
-			name:        "from bool true",
-			input:       true,
-			expected:    "true",
-			expectedErr: nil,
-		},
-		{
-			name:        "from bool false",
-			input:       false,
-			expected:    "false",
-			expectedErr: nil,
-		},
-
-		// Struct
-		{
-			name:        "from struct (JSON marshalable)",
-			input:       struct{ Name string }{Name: "Test"},
-			expected:    `{"Name":"Test"}`,
-			expectedErr: nil,
-		},
-		{
-			name: "from complex struct (JSON marshalable)",
-			input: struct {
-				A int
-				B []string
-			}{A: 1, B: []string{"x", "y"}},
-			expected:    `{"A":1,"B":["x","y"]}`,
-			expectedErr: nil,
-		},
+		// Valid
+		{name: "to string", input: []byte("hello"), expected: "hello", expectErr: false},
+		{name: "to int", input: []byte("123"), expected: 123, expectErr: false},
+		{name: "to int64", input: []byte("9876543210"), expected: int64(9876543210), expectErr: false},
+		{name: "to float64", input: []byte("123.45"), expected: 123.45, expectErr: false},
+		{name: "to bool true", input: []byte("true"), expected: true, expectErr: false},
+		{name: "1 to bool true", input: []byte("1"), expected: true, expectErr: false},
+		{name: "to bool false", input: []byte("false"), expected: false, expectErr: false},
+		{name: "0 to bool false", input: []byte("0"), expected: false, expectErr: false},
+		{name: "to []string from JSON", input: []byte(`["a", "b"]`), expected: []string{"a", "b"}, expectErr: false},
+		{name: "to []int from JSON", input: []byte(`[1, 2]`), expected: []int{1, 2}, expectErr: false},
+		{name: "to struct from JSON", input: []byte(`{"Name":"Test","Age":30}`), expected: dummy{Name: "Test", Age: 30}, expectErr: false},
+		{name: "to uint", input: []byte("123"), expected: uint(123), expectErr: false},
+		{name: "to uint64", input: []byte("9876543210"), expected: uint64(9876543210), expectErr: false},
 
 		// Invalid
-		{
-			name:        "from unmarshalable type", // e.g., channel
-			input:       make(chan int),
-			expected:    "",
-			expectedErr: errors.New("convert: cannot cast chan int to string and failed to marshal to JSON: json: unsupported type: chan int"),
-		},
+		{name: "invalid bytes to int", input: []byte("abc"), expected: 0, expectErr: true},
+		{name: "invalid bytes to int64", input: []byte("def"), expected: int64(0), expectErr: true},
+		{name: "invalid bytes to float64", input: []byte("xyz"), expected: 0.0, expectErr: true},
+		{name: "invalid bytes to bool", input: []byte("not_a_bool"), expected: false, expectErr: true},
+		{name: "invalid string to uint", input: []byte("-123"), expected: uint(0), expectErr: true},
+		{name: "invalid string to uint64", input: []byte("-9876543210"), expected: uint64(0), expectErr: true},
 	}
 
 	for _, tt := range tests {
 		tt := tt
-
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			// Act
-			result, err := toString(tt.input)
+			var result any
+			var err error
 
-			// Assert
-			if tt.expectedErr != nil {
-				assert.Error(t, err)
-				assert.EqualError(t, err, tt.expectedErr.Error())
+			switch tt.expected.(type) {
+			case string:
+				result, err = fromBytes[string](tt.input)
+			case int:
+				result, err = fromBytes[int](tt.input)
+			case int64:
+				result, err = fromBytes[int64](tt.input)
+			case float64:
+				result, err = fromBytes[float64](tt.input)
+			case bool:
+				result, err = fromBytes[bool](tt.input)
+			case []string:
+				result, err = fromBytes[[]string](tt.input)
+			case []int:
+				result, err = fromBytes[[]int](tt.input)
+			case dummy:
+				result, err = fromBytes[dummy](tt.input)
+			case uint:
+				result, err = fromBytes[uint](tt.input)
+			case uint64:
+				result, err = fromBytes[uint64](tt.input)
+			default:
+				t.Fatalf("unsupported type in test: %T", tt.expected)
+			}
+
+			if tt.expectErr {
+				assert.Error(t, err, "must return an error when conversion fails")
+				assert.Equal(t, tt.expected, result, "result on error must be the zero value of the target type")
 				return
 			}
 
-			assert.NoError(t, err)
-			assert.Equal(t, tt.expected, result)
+			assert.NoError(t, err, "must not return an error when conversion succeeds")
+			assert.Equal(t, tt.expected, result, "converted value must match the expected value")
 		})
 	}
 }
 
-func TestHelper_toStrings(t *testing.T) {
+func TestHelper_fromStringOrNumber(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		input       any
-		expected    []string
-		expectedErr error
+		name     string
+		input    string
+		expected any
 	}{
-		{
-			name:        "from []string",
-			input:       []string{"a", "b", "c"},
-			expected:    []string{"a", "b", "c"},
-			expectedErr: nil,
-		},
-		{
-			name:        "from JSON string",
-			input:       `["d","e","f"]`,
-			expected:    []string{"d", "e", "f"},
-			expectedErr: nil,
-		},
-		{
-			name:        "from JSON []byte",
-			input:       []byte(`["g","h","i"]`),
-			expected:    []string{"g", "h", "i"},
-			expectedErr: nil,
-		},
-		{
-			name:        "from empty []string",
-			input:       []string{},
-			expected:    []string{},
-			expectedErr: nil,
-		},
-		{
-			name:        "from empty JSON string",
-			input:       "[]",
-			expected:    []string{},
-			expectedErr: nil,
-		},
-		{
-			name:        "from empty JSON []byte",
-			input:       []byte("[]"),
-			expected:    []string{},
-			expectedErr: nil,
-		},
-		{
-			name:        "from invalid JSON string",
-			input:       "invalid json",
-			expected:    nil,
-			expectedErr: ErrTypeMismatch,
-		},
-		{
-			name:        "from invalid JSON []byte",
-			input:       []byte("invalid json"),
-			expected:    nil,
-			expectedErr: ErrTypeMismatch,
-		},
-		{
-			name:        "from unsupported type",
-			input:       123,
-			expected:    nil,
-			expectedErr: ErrTypeMismatch,
-		},
-		{
-			name:        "from nil",
-			input:       nil,
-			expected:    nil,
-			expectedErr: nil,
-		},
-		{
-			name:        "from []any of strings (json marshal fallback)",
-			input:       []any{"str1", "str2"},
-			expected:    []string{"str1", "str2"},
-			expectedErr: nil,
-		},
-		{
-			name:        "from []any of mixed types (json marshal fallback, should fail)",
-			input:       []any{"str1", 123},
-			expected:    nil,
-			expectedErr: ErrTypeMismatch,
-		},
-		{
-			name: "from non-marshallable type (should fail marshal)",
-			input: func() any {
-				ch := make(chan int)
-				return ch
-			}(),
-			expected:    nil,
-			expectedErr: ErrTypeMismatch,
-		},
+		{name: "to string", input: "hello", expected: "hello"},
+		{name: "to int", input: "123", expected: 123},
+		{name: "to int64", input: "9876543210", expected: int64(9876543210)},
+		{name: "to float64", input: "123.45", expected: 123.45},
+		{name: "to bool true", input: "true", expected: true},
+		{name: "to bool false", input: "false", expected: false},
 	}
 
 	for _, tt := range tests {
 		tt := tt
-
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			// Act
-			result, err := toStrings(tt.input)
+			var result any
+			var err error
 
-			// Assert
-			if tt.expectedErr != nil {
-				assert.Error(t, err)
-				assert.Equal(t, tt.expectedErr, err)
-				return
+			switch tt.expected.(type) {
+			case string:
+				result, err = fromStringOrNumber[string](tt.input)
+			case int:
+				result, err = fromStringOrNumber[int](tt.input)
+			case int64:
+				result, err = fromStringOrNumber[int64](tt.input)
+			case float64:
+				result, err = fromStringOrNumber[float64](tt.input)
+			case bool:
+				result, err = fromStringOrNumber[bool](tt.input)
+			default:
+				t.Fatalf("unsupported type in test: %T", tt.expected)
 			}
 
-			assert.NoError(t, err)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
-func TestHelper_getOrSetDefault(t *testing.T) {
-	t.Parallel()
-
-	type TestStruct struct {
-		Value string
-	}
-
-	ctx := context.Background()
-	key := "test-key"
-	ttl := time.Minute
-
-	defaultVal := TestStruct{Value: "default"}
-	defaultFn := func() (TestStruct, error) {
-		return defaultVal, nil
-	}
-	errorFn := func() (TestStruct, error) {
-		return TestStruct{}, errors.New("default function error")
-	}
-
-	tests := []struct {
-		name          string
-		defaultFunc   func() (TestStruct, error)
-		setErr        error
-		expectedValue TestStruct
-		expectedErr   error
-	}{
-		{
-			name:          "should return default value and set it if no error",
-			defaultFunc:   defaultFn,
-			setErr:        nil,
-			expectedValue: defaultVal,
-			expectedErr:   nil,
-		},
-		{
-			name:          "should return default value and set error if set fails",
-			defaultFunc:   defaultFn,
-			setErr:        errors.New("set failed"),
-			expectedValue: defaultVal,
-			expectedErr:   errors.New("set failed"),
-		},
-		{
-			name:          "should return error if default function fails",
-			defaultFunc:   errorFn,
-			setErr:        nil, // Set should not be called
-			expectedValue: TestStruct{},
-			expectedErr:   errors.New("default function error"),
-		},
-	}
-
-	for _, tt := range tests {
-		tt := tt
-
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			// Arrange
-			mockStore := new(omnicachemock.MockStore)
-			mockStore.SetFunc = func(_ context.Context, k string, v any, d time.Duration) error {
-				assert.Equal(t, key, k)
-				assert.Equal(t, defaultVal, v)
-				assert.Equal(t, ttl, d)
-				return tt.setErr
-			}
-
-			manager := &Manager{store: mockStore}
-
-			// Act
-			value, err := getOrSetDefault(ctx, manager, key, ttl, tt.defaultFunc)
-
-			// Assert
-			if tt.expectedErr != nil {
-				assert.Error(t, err)
-				assert.EqualError(t, err, tt.expectedErr.Error())
-				assert.Equal(t, tt.expectedValue, value)
-				return
-			}
-
-			assert.NoError(t, err)
-			assert.Equal(t, tt.expectedValue, value)
+			assert.NoError(t, err, "must not return an error when conversion succeeds")
+			assert.Equal(t, tt.expected, result, "converted value must match the expected value")
 		})
 	}
 }

@@ -39,13 +39,33 @@ func NoError(t *testing.T, err error, msg ...any) {
 func Equal(t *testing.T, expected, got any, msg ...any) {
 	t.Helper()
 
+	// build message
 	message := fmt.Sprintf("expected %v, got %v", expected, got)
 	if len(msg) > 0 {
 		message = fmt.Sprint(msg...)
 	}
 
+	// handle nils
+	if expected == nil && got == nil {
+		return
+	}
+
+	ev := reflect.ValueOf(expected)
+	gv := reflect.ValueOf(got)
+
+	// handle slice/map nil vs empty equivalence
+	if ev.IsValid() && gv.IsValid() &&
+		ev.Kind() == gv.Kind() &&
+		(ev.Kind() == reflect.Slice || ev.Kind() == reflect.Map) {
+
+		if ev.Len() == 0 && gv.IsNil() || gv.Len() == 0 && ev.IsNil() {
+			return // treat nil and empty as equal
+		}
+	}
+
+	// use DeepEqual for everything else
 	if !reflect.DeepEqual(got, expected) {
-		t.Fatal(message)
+		t.Fatalf("%s\nexpected: %#v\n     got: %#v", message, expected, got)
 	}
 }
 

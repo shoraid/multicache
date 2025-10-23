@@ -1,320 +1,141 @@
 package omnicache
 
 import (
-	"context"
-	"encoding/json"
 	"fmt"
-	"reflect"
 	"strconv"
-	"time"
+
+	"github.com/bytedance/sonic"
 )
 
-// toBool attempts to convert various types to bool.
-// It supports bool, string, []byte, int, int64, float64, and float32.
-// Returns an error if the value cannot be reasonably converted.
-func toBool(val any) (bool, error) {
-	switch v := val.(type) {
-	case bool:
-		return v, nil
+// convertAnyToType converts any Go value to a target generic type T.
+// It supports primitives, []byte, and slices efficiently.
+func convertAnyToType[T any](v any) (T, error) {
+	var zero T
+
+	if v == nil {
+		return zero, ErrTypeMismatch
+	}
+
+	switch val := any(v).(type) {
+
+	// --- Fast paths for primitives ---
+	case T:
+		return val, nil
 
 	case string:
-		parsed, err := strconv.ParseBool(v)
-		if err != nil {
-			return false, err
-		}
-		return parsed, nil
+		return fromString[T](val)
 
 	case []byte:
-		parsed, err := strconv.ParseBool(string(v))
-		if err != nil {
-			return false, err
-		}
-		return parsed, nil
+		return fromBytes[T](val)
 
 	case int:
-		return v != 0, nil
+		return fromStringOrNumber[T](strconv.Itoa(val))
 
 	case int64:
-		return v != 0, nil
+		return fromStringOrNumber[T](strconv.FormatInt(val, 10))
 
 	case float64:
-		return v != 0, nil
-
-	case float32:
-		return v != 0, nil
-
-	default:
-		return false, fmt.Errorf("convert: cannot cast %T to bool", val)
-	}
-}
-
-// toInt attempts to convert various types to int.
-// It supports int, int64, float64, string, []byte, and bool.
-// Returns an error if the value cannot be reasonably converted.
-func toInt(val any) (int, error) {
-	switch v := val.(type) {
-	case string:
-		n, err := strconv.Atoi(v)
-		if err != nil {
-			return 0, fmt.Errorf("convert: failed to parse int from string: %w", err)
-		}
-		return n, nil
-
-	case []byte:
-		n, err := strconv.Atoi(string(v))
-		if err != nil {
-			return 0, fmt.Errorf("convert: failed to parse int from bytes: %w", err)
-		}
-		return n, nil
-
-	case int:
-		return v, nil
-
-	case int8:
-		return int(v), nil
-
-	case int16:
-		return int(v), nil
-
-	case int32:
-		return int(v), nil
-
-	case int64:
-		return int(v), nil
-
-	case uint:
-		return int(v), nil
-
-	case uint8:
-		return int(v), nil
-
-	case uint16:
-		return int(v), nil
-
-	case uint32:
-		return int(v), nil
-
-	case uint64:
-		return int(v), nil
-
-	case float32:
-		return int(v), nil
-
-	case float64:
-		return int(v), nil
+		return fromStringOrNumber[T](strconv.FormatFloat(val, 'f', -1, 64))
 
 	case bool:
-		if v {
-			return 1, nil
-		}
-		return 0, nil
+		return fromStringOrNumber[T](strconv.FormatBool(val))
 
 	default:
-		return 0, fmt.Errorf("convert: cannot cast %T to int", val)
-	}
-}
+		var out T
 
-// toInt64 attempts to convert various types to int64.
-// It supports int, uint, float, bool, string, and []byte.
-// Returns an error if the type cannot be reasonably converted.
-func toInt64(val any) (int64, error) {
-	switch v := val.(type) {
-	case string:
-		n, err := strconv.ParseInt(v, 10, 64)
-		if err != nil {
-			return 0, fmt.Errorf("convert: failed to parse int64 from string: %w", err)
-		}
-		return n, nil
-
-	case []byte:
-		n, err := strconv.ParseInt(string(v), 10, 64)
-		if err != nil {
-			return 0, fmt.Errorf("convert: failed to parse int64 from bytes: %w", err)
-		}
-		return n, nil
-
-	case int:
-		return int64(v), nil
-
-	case int8:
-		return int64(v), nil
-
-	case int16:
-		return int64(v), nil
-
-	case int32:
-		return int64(v), nil
-
-	case int64:
-		return v, nil
-
-	case uint:
-		return int64(v), nil
-
-	case uint8:
-		return int64(v), nil
-
-	case uint16:
-		return int64(v), nil
-
-	case uint32:
-		return int64(v), nil
-
-	case uint64:
-		return int64(v), nil
-
-	case float32:
-		return int64(v), nil
-
-	case float64:
-		return int64(v), nil
-
-	case bool:
-		if v {
-			return 1, nil
-		}
-		return 0, nil
-
-	default:
-		return 0, fmt.Errorf("convert: cannot cast %T to int64", val)
-	}
-}
-
-// toInts attempts to convert any value into a []int.
-// It handles multiple common representations returned by different cache backends.
-func toInts(val any) ([]int, error) {
-	switch v := val.(type) {
-	case []int:
-		return v, nil
-
-	case string:
-		var data []int
-		if err := json.Unmarshal([]byte(v), &data); err != nil {
-			return nil, ErrTypeMismatch
-		}
-		return data, nil
-
-	case []byte:
-		var data []int
-		if err := json.Unmarshal(v, &data); err != nil {
-			return nil, ErrTypeMismatch
-		}
-		return data, nil
-
-	case []float64:
-		ints := make([]int, len(v))
-		for i, num := range v {
-			ints[i] = int(num)
-		}
-		return ints, nil
-
-	case []any:
-		ints := make([]int, len(v))
-		for i, elem := range v {
-			switch num := elem.(type) {
-			case float64:
-				ints[i] = int(num)
-			case int:
-				ints[i] = num
-			default:
-				return nil, ErrTypeMismatch
+		// --- convert struct/slice to string
+		if _, ok := any(zero).(string); ok {
+			b, err := sonic.Marshal(val)
+			if err != nil {
+				return zero, fmt.Errorf("marshal error: %w", err)
 			}
+			return any(string(b)).(T), nil
 		}
-		return ints, nil
 
-	default:
-		return nil, ErrTypeMismatch
+		// --- Fallback: JSON round-trip
+		b, err := sonic.Marshal(val)
+		if err != nil {
+			return zero, fmt.Errorf("marshal error: %w", err)
+		}
+		if err := sonic.Unmarshal(b, &out); err != nil {
+			return zero, fmt.Errorf("unmarshal error: %w", err)
+		}
+		return out, nil
 	}
 }
 
-// toString attempts to convert any value into a string.
-// It handles various primitive types and falls back to JSON marshaling for complex types.
-// Returns an error if the value cannot be reasonably converted or marshaled.
-func toString(val any) (string, error) {
-	switch v := val.(type) {
+// fromString converts a string to a target generic type T.
+func fromString[T any](s string) (T, error) {
+	var zero T
+	var result any
+	var err error
+
+	switch any(zero).(type) {
 	case string:
-		return v, nil
-
-	case []byte:
-		return string(v), nil
-
-	case int:
-		return strconv.Itoa(v), nil
-
-	case int8, int16, int32, int64:
-		return strconv.FormatInt(reflect.ValueOf(v).Int(), 10), nil
-
-	case uint, uint8, uint16, uint32, uint64:
-		return strconv.FormatUint(reflect.ValueOf(v).Uint(), 10), nil
-
-	case float32:
-		return strconv.FormatFloat(float64(v), 'f', -1, 32), nil
-
-	case float64:
-		return strconv.FormatFloat(v, 'f', -1, 64), nil
-
+		result = s
 	case bool:
-		return strconv.FormatBool(v), nil
-
-	default:
-		jsonBytes, err := json.Marshal(v)
-		if err != nil {
-			return "", fmt.Errorf("convert: cannot cast %T to string and failed to marshal to JSON: %w", val, err)
-		}
-		return string(jsonBytes), nil
-	}
-}
-
-// toStrings attempts to convert any value into a []string.
-// It handles multiple common representations returned by different cache backends.
-func toStrings(val any) ([]string, error) {
-	switch v := val.(type) {
-	case string:
-		var data []string
-		if err := json.Unmarshal([]byte(v), &data); err != nil {
-			return nil, ErrTypeMismatch
-		}
-		return data, nil
-
+		result, err = strconv.ParseBool(s)
+	case int:
+		var n int64
+		n, err = strconv.ParseInt(s, 10, 0)
+		result = int(n)
+	case int64:
+		result, err = strconv.ParseInt(s, 10, 64)
+	case float64:
+		result, err = strconv.ParseFloat(s, 64)
 	case []byte:
-		var data []string
-		if err := json.Unmarshal(v, &data); err != nil {
-			return nil, ErrTypeMismatch
-		}
-		return data, nil
-
-	case []string:
-		return v, nil
-
+		result = []byte(s)
 	default:
-		// Attempt a generic fallback via JSON round-trip
-		raw, err := json.Marshal(v)
-		if err != nil {
-			return nil, ErrTypeMismatch
+		var out T
+		if err := sonic.Unmarshal([]byte(s), &out); err != nil {
+			return zero, fmt.Errorf("unsupported conversion from string to %T: %w", zero, err)
 		}
-
-		var data []string
-		if err := json.Unmarshal(raw, &data); err != nil {
-			return nil, ErrTypeMismatch
-		}
-
-		return data, nil
+		return out, nil
 	}
-}
 
-// getOrSetDefault is a helper function to handle the common pattern of
-// getting a value from cache, and if it's a cache miss or type mismatch,
-// computing a default value and setting it in the cache.
-func getOrSetDefault[T any](ctx context.Context, m *Manager, key string, ttl time.Duration, defaultFn func() (T, error)) (T, error) {
-	val, err := defaultFn()
 	if err != nil {
-		var zero T
 		return zero, err
 	}
 
-	if err := m.Set(ctx, key, val, ttl); err != nil {
-		return val, err
+	return result.(T), nil
+}
+
+// fromBytes converts a byte slice to a target generic type T.
+func fromBytes[T any](b []byte) (T, error) {
+	var zero T
+	var result any
+	var err error
+
+	switch any(zero).(type) {
+	case string:
+		result = string(b)
+	case bool:
+		result, err = strconv.ParseBool(string(b))
+	case int:
+		var n int64
+		n, err = strconv.ParseInt(string(b), 10, 0)
+		result = int(n)
+	case int64:
+		result, err = strconv.ParseInt(string(b), 10, 64)
+	case float64:
+		result, err = strconv.ParseFloat(string(b), 64)
+	default:
+		// Fallback for struct or unknown type
+		var out T
+		if err := sonic.Unmarshal(b, &out); err != nil {
+			return zero, fmt.Errorf("unsupported conversion from string to %T: %w", zero, err)
+		}
+		return out, nil
 	}
 
-	return val, nil
+	if err != nil {
+		return zero, err
+	}
+
+	return result.(T), nil
+}
+
+// fromStringOrNumber converts a string to a target generic type T.
+func fromStringOrNumber[T any](s string) (T, error) {
+	return fromString[T](s)
 }

@@ -2,10 +2,7 @@ package omnicache
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
-	"strconv"
 	"time"
 )
 
@@ -31,7 +28,13 @@ func (g *GenericManager[T]) Get(ctx context.Context, key string) (T, error) {
 		return zero, err
 	}
 
-	return convertAnyToType[T](val)
+	result, err := convertAnyToType[T](val)
+	if err != nil {
+		var zero T
+		return zero, ErrTypeMismatch
+	}
+
+	return result, nil
 }
 
 // GetOrSet retrieves a value of type T from the cache if present; otherwise,
@@ -49,113 +52,15 @@ func (g *GenericManager[T]) GetOrSet(ctx context.Context, key string, ttl time.D
 		return zero, err
 	}
 
-	return getOrSetDefault(ctx, g.m, key, ttl, defaultFn)
-}
-
-// convertAnyToType attempts to convert an `any` type to a specific generic type `T`.
-// It handles direct type assertion, byte slices, strings, and falls back to JSON marshaling/unmarshaling.
-func convertAnyToType[T any](val any) (T, error) {
-	var zero T
-
-	if v, ok := val.(T); ok {
-		return v, nil
-	}
-
-	if bytes, ok := val.([]byte); ok {
-		return parseFromBytes[T](bytes)
-	}
-
-	if str, ok := val.(string); ok {
-		return parseFromString[T](str)
-	}
-
-	raw, err := json.Marshal(val)
+	defaultValue, err := defaultFn()
 	if err != nil {
-		return zero, fmt.Errorf("convert: cannot marshal fallback (%T): %w", val, err)
+		var zero T
+		return zero, err
 	}
 
-	var result T
-	if err := json.Unmarshal(raw, &result); err != nil {
-		return zero, fmt.Errorf("convert: cannot unmarshal fallback to T: %w", err)
+	if err := g.m.Set(ctx, key, defaultValue, ttl); err != nil {
+		return defaultValue, err
 	}
 
-	return result, nil
-}
-
-// parseFromBytes attempts to convert a byte slice to a specific generic type T.
-// It handles common primitive types and falls back to JSON unmarshaling.
-func parseFromBytes[T any](b []byte) (T, error) {
-	var zero T
-	var t T
-
-	switch any(t).(type) {
-	case string:
-		return any(string(b)).(T), nil
-
-	case int:
-		n, err := strconv.Atoi(string(b))
-		if err != nil {
-			return zero, fmt.Errorf("convert: failed to parse int from bytes: %w", err)
-		}
-		return any(n).(T), nil
-
-	case int64:
-		n, err := strconv.ParseInt(string(b), 10, 64)
-		if err != nil {
-			return zero, fmt.Errorf("convert: failed to parse int64 from bytes: %w", err)
-		}
-		return any(n).(T), nil
-
-	case bool:
-		v, err := strconv.ParseBool(string(b))
-		if err != nil {
-			return zero, fmt.Errorf("convert: failed to parse bool from bytes: %w", err)
-		}
-		return any(v).(T), nil
-
-	default:
-		if err := json.Unmarshal(b, &t); err != nil {
-			return zero, fmt.Errorf("convert: failed to unmarshal bytes to T: %w", err)
-		}
-		return t, nil
-	}
-}
-
-// parseFromString attempts to convert a string to a specific generic type T.
-// It handles common primitive types and falls back to JSON unmarshaling.
-func parseFromString[T any](s string) (T, error) {
-	var zero T
-	var t T
-
-	switch any(t).(type) {
-	case string:
-		return any(s).(T), nil
-
-	case int:
-		n, err := strconv.Atoi(s)
-		if err != nil {
-			return zero, fmt.Errorf("convert: failed to parse int from string: %w", err)
-		}
-		return any(n).(T), nil
-
-	case int64:
-		n, err := strconv.ParseInt(s, 10, 64)
-		if err != nil {
-			return zero, fmt.Errorf("convert: failed to parse int64 from string: %w", err)
-		}
-		return any(n).(T), nil
-
-	case bool:
-		v, err := strconv.ParseBool(s)
-		if err != nil {
-			return zero, fmt.Errorf("convert: failed to parse bool from string: %w", err)
-		}
-		return any(v).(T), nil
-
-	default:
-		if err := json.Unmarshal([]byte(s), &t); err != nil {
-			return zero, fmt.Errorf("convert: failed to unmarshal string to T: %w", err)
-		}
-		return t, nil
-	}
+	return defaultValue, nil
 }
