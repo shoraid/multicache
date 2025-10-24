@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Error asserts that err is not nil.
@@ -65,6 +66,21 @@ func Equal(t *testing.T, expected, got any, msg ...any) {
 
 	// use DeepEqual for everything else
 	if !reflect.DeepEqual(got, expected) {
+		t.Fatalf("%s\nexpected: %#v\n     got: %#v", message, expected, got)
+	}
+}
+
+// NotEqual asserts that two values are not equal.
+func NotEqual(t *testing.T, expected, got any, msg ...any) {
+	t.Helper()
+
+	// build message
+	message := fmt.Sprintf("expected %v, got %v", expected, got)
+	if len(msg) > 0 {
+		message = fmt.Sprint(msg...)
+	}
+
+	if reflect.DeepEqual(got, expected) {
 		t.Fatalf("%s\nexpected: %#v\n     got: %#v", message, expected, got)
 	}
 }
@@ -196,6 +212,48 @@ func EqualError(t *testing.T, expected, err error, msg ...any) {
 
 	if expected.Error() != err.Error() {
 		message := fmt.Sprintf("expected error %q, got %q", expected.Error(), err.Error())
+		if len(msg) > 0 {
+			message = fmt.Sprint(msg...)
+		}
+		t.Fatal(message)
+	}
+}
+
+// True asserts that the given boolean value is true.
+func True(t *testing.T, value bool, msg ...any) {
+	t.Helper()
+
+	message := "expected true, got false"
+	if len(msg) > 0 {
+		message = fmt.Sprint(msg...)
+	}
+
+	if !value {
+		t.Fatal(message)
+	}
+}
+
+// False asserts that the given boolean value is false.
+func False(t *testing.T, value bool, msg ...any) {
+	t.Helper()
+
+	message := "expected false, got true"
+	if len(msg) > 0 {
+		message = fmt.Sprint(msg...)
+	}
+
+	if value {
+		t.Fatal(message)
+	}
+}
+
+// WithinDuration asserts that the two specified times are within a given duration of each other.
+func WithinDuration(t *testing.T, expected, actual time.Time, delta time.Duration, msg ...any) {
+	t.Helper()
+
+	diff := actual.Sub(expected)
+	if diff < -delta || diff > delta {
+		message := fmt.Sprintf("expected time %s to be within %s of %s, but difference is %s", actual, delta, expected, diff)
 		if len(msg) > 0 {
 			message = fmt.Sprint(msg...)
 		}

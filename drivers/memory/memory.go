@@ -29,7 +29,7 @@ func NewMemoryStore(config MemoryConfig) (contract.Store, error) {
 	store := &MemoryStore{}
 
 	// Set the cleanup interval from config, or use default
-	cleanupInterval := omnicache.DefaultCleanupInterval
+	cleanupInterval := DefaultCleanupInterval
 
 	if config.CleanupInterval > 0 {
 		cleanupInterval = config.CleanupInterval
@@ -119,30 +119,53 @@ func (m *MemoryStore) Delete(ctx context.Context, key string) error {
 //   - On large caches, this can be slow and should be used sparingly
 //     (e.g., for administrative cleanup rather than frequent operations).
 func (m *MemoryStore) DeleteByPattern(ctx context.Context, pattern string) error {
-	// Validate only if pattern doesn't contain '*' (wildcard)
-	// So patterns like "*" or "*:apple" are allowed,
-	// but invalid raw regex like "[" are caught.
-	if !strings.Contains(pattern, "*") {
-		if _, err := regexp.Compile(pattern); err != nil {
-			return err
-		}
+	if pattern == "" {
+		return nil
 	}
 
-	regexPattern := "^" + regexp.QuoteMeta(pattern) + "$"
-	regexPattern = strings.ReplaceAll(regexPattern, "\\*", ".*")
+	// Fast path: clear all
+	if pattern == "*" {
+		m.data = sync.Map{}
+		return nil
+	}
+
+	var regexPattern string
+
+	if strings.Contains(pattern, "*") {
+		// Wildcard mode: escape + replace
+		regexPattern = "^" + regexp.QuoteMeta(pattern) + "$"
+		regexPattern = strings.ReplaceAll(regexPattern, "\\*", ".*")
+	} else {
+		// Keep it as-is (match full key)
+		regexPattern = "^" + pattern + "$"
+	}
 
 	re, err := regexp.Compile(regexPattern)
 	if err != nil {
-		return err
+		return omnicache.ErrInvalidValue
 	}
 
+	var keysToDelete []string
 	m.data.Range(func(k, _ any) bool {
+		select {
+		case <-ctx.Done():
+			return false
+		default:
+		}
+
 		keyStr, ok := k.(string)
-		if ok && re.MatchString(keyStr) {
-			m.data.Delete(k)
+		if !ok {
+			return true
+		}
+		if re.MatchString(keyStr) {
+			keysToDelete = append(keysToDelete, keyStr)
 		}
 		return true
 	})
+
+	for _, key := range keysToDelete {
+		m.data.Delete(key)
+	}
 
 	return nil
 }
