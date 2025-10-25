@@ -129,6 +129,53 @@ func TestMemoryStore_Clear(t *testing.T) {
 	}
 }
 
+func TestMemoryStore_Close(t *testing.T) {
+	t.Parallel()
+
+	t.Run("should stop cleanup goroutine when Close is called", func(t *testing.T) {
+		t.Parallel()
+
+		// --- Arrange ---
+		cleanupInterval := 50 * time.Millisecond
+		store, err := NewMemoryStore(MemoryConfig{CleanupInterval: cleanupInterval})
+		assert.NoError(t, err)
+
+		memoryStore, ok := store.(*MemoryStore)
+		assert.True(t, ok, "expected store to be *MemoryStore")
+
+		// --- Act ---
+		err = memoryStore.Close(context.Background())
+
+		// --- Assert ---
+		assert.NoError(t, err, "expected no error when calling Close")
+
+		// Wait for doneCh to close (goroutine exit signal)
+		select {
+		case <-memoryStore.doneCh:
+			// success — cleanup goroutine stopped
+		case <-time.After(200 * time.Millisecond):
+			t.Fatal("expected cleanup goroutine to stop quickly")
+		}
+
+		// --- Act Again (ensure idempotency) ---
+		err = memoryStore.Close(context.Background())
+		assert.NoError(t, err, "expected no error when calling Close multiple times")
+	})
+
+	t.Run("should safely handle nil cancelCleanup", func(t *testing.T) {
+		t.Parallel()
+
+		// --- Arrange ---
+		store := &MemoryStore{}
+
+		// --- Act ---
+		err := store.Close(context.Background())
+
+		// --- Assert ---
+		assert.NoError(t, err, "expected no error when Close called with nil cancelCleanup")
+	})
+}
+
 func TestMemoryStore_cleanupExpiredKeys(t *testing.T) {
 	t.Parallel()
 

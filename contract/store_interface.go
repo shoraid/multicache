@@ -13,6 +13,10 @@ type Store interface {
 	// Clear removes all entries from the store.
 	Clear(ctx context.Context) error
 
+	// Close releases any resources held by the store.
+	// Should be safe to call multiple times.
+	Close(ctx context.Context) error
+
 	// Delete removes a single entry by key.
 	// If the key does not exist, it should return nil (no error).
 	Delete(ctx context.Context, key string) error

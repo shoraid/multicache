@@ -14,6 +14,7 @@ import (
 type MemoryStore struct {
 	data          sync.Map
 	cancelCleanup context.CancelFunc
+	doneCh        chan struct{}
 }
 
 type memoryItem struct {
@@ -26,11 +27,12 @@ type memoryItem struct {
 // The cleanup interval can be provided via the config map under "cleanup_interval".
 // If not provided, a default interval of 10 minutes is used.
 func NewMemoryStore(config MemoryConfig) (contract.Store, error) {
-	store := &MemoryStore{}
+	store := &MemoryStore{
+		doneCh: make(chan struct{}),
+	}
 
 	// Set the cleanup interval from config, or use default
 	cleanupInterval := DefaultCleanupInterval
-
 	if config.CleanupInterval > 0 {
 		cleanupInterval = config.CleanupInterval
 	}
@@ -48,6 +50,13 @@ func NewMemoryStore(config MemoryConfig) (contract.Store, error) {
 func (m *MemoryStore) cleanupExpiredKeys(ctx context.Context, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+	defer func() {
+		// Notify that the cleanup goroutine has exited.
+		// This is used for deterministic shutdowns in tests.
+		if m.doneCh != nil {
+			close(m.doneCh)
+		}
+	}()
 
 	for {
 		select {
@@ -82,6 +91,17 @@ func (m *MemoryStore) deleteExpiredKeys() {
 //   - Should be used carefully in production as it clears all data.
 func (m *MemoryStore) Clear(ctx context.Context) error {
 	m.data.Clear()
+
+	return nil
+}
+
+// Close stops the background cleanup goroutine and releases any resources held by the store.
+// It is safe to call Close multiple times.
+func (m *MemoryStore) Close(ctx context.Context) error {
+	if m.cancelCleanup != nil {
+		m.cancelCleanup()
+		m.cancelCleanup = nil // Prevent calling cancel multiple times
+	}
 
 	return nil
 }

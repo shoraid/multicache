@@ -8,20 +8,27 @@ import (
 	"github.com/shoraid/omnicache/internal/testutil"
 )
 
-// MockStore is a lightweight mock for contract.Store, powered by testutil.MockHelper.
 type MockStore struct {
 	Mock *testutil.MockHelper
 }
 
-// NewMockStore creates a new mock store.
 func NewMockStore(t *testing.T) *MockStore {
 	return &MockStore{Mock: testutil.NewMockHelper(t)}
 }
 
-// --- Store method mocks ---
-
 func (m *MockStore) Clear(ctx context.Context) error {
 	args := m.Mock.Called("Clear", ctx)
+	if len(args) == 0 {
+		return nil
+	}
+	if err, ok := args[0].(error); ok {
+		return err
+	}
+	return nil
+}
+
+func (m *MockStore) Close(ctx context.Context) error {
+	args := m.Mock.Called("Close", ctx)
 	if len(args) == 0 {
 		return nil
 	}
@@ -88,8 +95,6 @@ func (m *MockStore) Set(ctx context.Context, key string, value any, ttl time.Dur
 	}
 	return asError(args[0])
 }
-
-// --- Helpers ---
 
 func asError(v any) error {
 	if v == nil {
