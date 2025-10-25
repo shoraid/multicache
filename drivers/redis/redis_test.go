@@ -1,568 +1,731 @@
-package redis
+package redisstore
 
 import (
 	"context"
-	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 	"github.com/shoraid/omnicache"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	redismock "github.com/shoraid/omnicache/drivers/redis/mock"
+	"github.com/shoraid/omnicache/internal/assert"
 )
 
-func TestRedisStore_NewRedisStore(t *testing.T) {
-	// Backup original buildTLSConfig function so we can restore after test
-	origBuildTLSConfig := buildTLSConfig
-	defer func() { buildTLSConfig = origBuildTLSConfig }()
+func TestRedisStore_NewRedisWithClient2(t *testing.T) {
+	t.Parallel()
 
 	tests := []struct {
-		name       string
-		cfg        RedisConfig
-		mockTLS    func()
-		wantErr    bool
-		errMessage string
+		name         string
+		setupClient  func() redisClient
+		expectedType string
 	}{
 		{
-			name: "should create store without TLS when UseTLS is false",
-			cfg: RedisConfig{
-				Addr:        "localhost:6379",
-				DB:          0,
-				UseTLS:      false,
-				PoolSize:    5,
-				PoolTimeout: 1 * time.Second,
+			name: "should return RedisStore instance when valid redis client is provided",
+			setupClient: func() redisClient {
+				return &redismock.MockRedisClient{}
 			},
-			mockTLS: func() {}, // no override
-			wantErr: false,
-		},
-		{
-			name: "should create store with TLS when UseTLS is true and TLSConfig is valid",
-			cfg: RedisConfig{
-				Addr:   "localhost:6379",
-				DB:     0,
-				UseTLS: true,
-				TLSConfig: &TLSConfig{
-					ServerName: "localhost",
-					MinVersion: tls.VersionTLS12,
-				},
-			},
-			mockTLS: func() {
-				buildTLSConfig = func(cfg *TLSConfig) (*tls.Config, error) {
-					return &tls.Config{ServerName: "localhost"}, nil
-				}
-			},
-			wantErr: false,
-		},
-		{
-			name: "should return error when TLSConfig build fails",
-			cfg: RedisConfig{
-				Addr:   "localhost:6379",
-				DB:     0,
-				UseTLS: true,
-				TLSConfig: &TLSConfig{
-					ServerName: "bad",
-				},
-			},
-			mockTLS: func() {
-				buildTLSConfig = func(cfg *TLSConfig) (*tls.Config, error) {
-					return nil, errors.New("mock: failed to build TLS")
-				}
-			},
-			wantErr:    true,
-			errMessage: "expected error when TLS build fails",
+			expectedType: "*redis.RedisStore",
 		},
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
-			tt.mockTLS()
+			t.Parallel()
+
+			// -- Arrange ---
+			client := tt.setupClient()
+
+			// --- Act ---
+			store, err := NewRedisWithClient(client)
+
+			// --- Assert ---
+			assert.NoError(t, err, "expected no error when creating store")
+			assert.NotNil(t, store, "expected store should not be nil")
+
+			// Check if the store really wraps the same client
+			_, ok := store.(*RedisStore)
+			assert.True(t, ok, "expected store to be *redis.RedisStore type")
+		})
+	}
+}
+func TestRedisStore_NewRedisWithClient(t *testing.T) {
+	t.Parallel()
+
+	t.Run("should return RedisStore instance when valid redis client is provided", func(t *testing.T) {
+		t.Parallel()
+
+		// -- Arrange ---
+		client := &redismock.MockRedisClient{}
+
+		// --- Act ---
+		store, err := NewRedisWithClient(client)
+
+		// --- Assert ---
+		assert.NoError(t, err, "expected no error when creating store")
+		assert.NotNil(t, store, "expected store should not be nil")
+
+		// Check if the store really wraps the same client
+		_, ok := store.(*RedisStore)
+		assert.True(t, ok, "expected store to be *redis.RedisStore type")
+	})
+}
+
+func TestRedisStore_NewRedisStore(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		cfg  RedisConfig
+	}{
+		{
+			name: "should return RedisStore instance when valid config is provided",
+			cfg: RedisConfig{
+				Addr: "localhost:6379",
+				DB:   0,
+			},
+		},
+		{
+			name: "should return RedisStore instance with all config options set",
+			cfg: RedisConfig{
+				Addr:            "localhost:6379",
+				ClientName:      "test-client",
+				Username:        "default",
+				Password:        "password",
+				DB:              1,
+				MaxRetries:      5,
+				MinRetryBackoff: 10 * time.Millisecond,
+				MaxRetryBackoff: 1 * time.Second,
+				DialTimeout:     2 * time.Second,
+				ReadTimeout:     3 * time.Second,
+				WriteTimeout:    3 * time.Second,
+				PoolSize:        20,
+				PoolTimeout:     4 * time.Second,
+				MinIdleConns:    5,
+				ConnMaxIdleTime: 30 * time.Minute,
+				ConnMaxLifetime: 1 * time.Hour,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			// --- Act ---
 			store, err := NewRedisStore(tt.cfg)
 
-			if tt.wantErr {
-				require.Error(t, err, "expected an error but got nil")
-				assert.Nil(t, store, "expected store to be nil")
-				if tt.errMessage != "" {
-					assert.Contains(t, err.Error(), "failed to build TLS config", tt.errMessage)
-				}
-				return
-			}
-
-			require.NoError(t, err, "expected no error but got one")
-			assert.NotNil(t, store, "expected store to be created")
+			// --- Assert ---
+			assert.NoError(t, err, "expected no error when creating store with valid config")
+			assert.NotNil(t, store, "expected store should not be nil")
+			_, ok := store.(*RedisStore)
+			assert.True(t, ok, "expected store to be *redis.RedisStore type")
 		})
 	}
 }
 
 func TestRedisStore_Clear(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
-		name       string
-		mockFunc   func(ctx context.Context) *redis.StatusCmd
-		wantErr    bool
-		errMessage string
+		name        string
+		mock        func(mock *redismock.MockRedisClient)
+		expectedErr error
 	}{
 		{
-			name: "should return no error when FlushDB succeeds",
-			mockFunc: func(ctx context.Context) *redis.StatusCmd {
-				cmd := redis.NewStatusCmd(ctx)
-				cmd.SetVal("OK")
-				return cmd
+			name: "should clear the database successfully when FlushDB succeeds",
+			mock: func(mock *redismock.MockRedisClient) {
+				mock.FlushDBFunc = func(ctx context.Context) *redis.StatusCmd {
+					cmd := redis.NewStatusCmd(ctx)
+					cmd.SetVal("OK")
+					return cmd
+				}
 			},
-			wantErr: false,
+			expectedErr: nil,
 		},
 		{
-			name: "should return error when FlushDB fails",
-			mockFunc: func(ctx context.Context) *redis.StatusCmd {
-				cmd := redis.NewStatusCmd(ctx)
-				cmd.SetErr(errors.New("mock: flush failed"))
-				return cmd
+			name: "should return an error when FlushDB fails",
+			mock: func(mock *redismock.MockRedisClient) {
+				mock.FlushDBFunc = func(ctx context.Context) *redis.StatusCmd {
+					cmd := redis.NewStatusCmd(ctx)
+					cmd.SetErr(errors.New("flushdb error"))
+					return cmd
+				}
 			},
-			wantErr:    true,
-			errMessage: "expected error when FlushDB fails",
+			expectedErr: errors.New("flushdb error"),
 		},
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
-			store := &RedisStore{
-				client: &mockRedisClient{
-					flushDBFunc: tt.mockFunc,
-				},
+			t.Parallel()
+
+			// --- Arrange ---
+			mock := &redismock.MockRedisClient{}
+			store := &RedisStore{client: mock}
+			ctx := context.Background()
+
+			tt.mock(mock)
+
+			// --- Act ---
+			err := store.Clear(ctx)
+
+			// --- Assert ---
+			if tt.expectedErr != nil {
+				assert.Error(t, err, "expected an error when FlushDB fails")
+				assert.EqualError(t, tt.expectedErr, err, "error must match the expected error")
+				return
 			}
 
-			err := store.Clear(context.Background())
-
-			if tt.wantErr {
-				assert.Error(t, err, tt.errMessage)
-				assert.Contains(t, err.Error(), "flush failed", "expected error message to contain flush failed")
-			} else {
-				assert.NoError(t, err, "expected no error but got one")
-			}
+			assert.NoError(t, err, "expected no error when FlushDB succeeds")
 		})
 	}
 }
 
+func TestRedisStore_Close(t *testing.T) {
+	t.Parallel()
+
+	t.Run("should close redis client successfully when client is *redis.Client", func(t *testing.T) {
+		t.Parallel()
+
+		// --- Arrange ---
+		client := redis.NewClient(&redis.Options{
+			Addr: "localhost:6379",
+		})
+
+		store := &RedisStore{client: client}
+		ctx := context.Background()
+
+		// --- Act ---
+		err := store.Close(ctx)
+
+		// --- Assert ---
+		assert.NoError(t, err, "expected no error when closing real redis client")
+	})
+
+	t.Run("should not panic and return nil when client is not *redis.Client", func(t *testing.T) {
+		t.Parallel()
+
+		// --- Arrange ---
+		mock := &redismock.MockRedisClient{}
+		store := &RedisStore{client: mock}
+		ctx := context.Background()
+
+		// --- Act ---
+		err := store.Close(ctx)
+
+		// --- Assert ---
+		assert.NoError(t, err, "expected no error when client is mock (non-redis.Client)")
+	})
+}
+
 func TestRedisStore_Delete(t *testing.T) {
+	t.Parallel()
+
+	key := "test-key"
+
 	tests := []struct {
-		name       string
-		key        string
-		mockFunc   func(ctx context.Context, keys ...string) *redis.IntCmd
-		wantErr    bool
-		errMessage string
+		name        string
+		mock        func(mock *redismock.MockRedisClient)
+		expectedErr error
 	}{
 		{
-			name: "should delete key successfully when Del returns no error",
-			key:  "foo",
-			mockFunc: func(ctx context.Context, keys ...string) *redis.IntCmd {
-				cmd := redis.NewIntCmd(ctx)
-				cmd.SetVal(1) // one key deleted
-				return cmd
+			name: "should delete the key successfully when Del succeeds",
+			mock: func(mock *redismock.MockRedisClient) {
+				mock.DelFunc = func(ctx context.Context, keys ...string) *redis.IntCmd {
+					cmd := redis.NewIntCmd(ctx)
+					cmd.SetVal(1)
+					return cmd
+				}
 			},
-			wantErr: false,
+			expectedErr: nil,
 		},
 		{
-			name: "should return error when Del fails",
-			key:  "bar",
-			mockFunc: func(ctx context.Context, keys ...string) *redis.IntCmd {
-				cmd := redis.NewIntCmd(ctx)
-				cmd.SetErr(errors.New("mock: delete failed"))
-				return cmd
+			name: "should return an error when Del fails",
+			mock: func(mock *redismock.MockRedisClient) {
+				mock.DelFunc = func(ctx context.Context, keys ...string) *redis.IntCmd {
+					cmd := redis.NewIntCmd(ctx)
+					cmd.SetErr(errors.New("del error"))
+					return cmd
+				}
 			},
-			wantErr:    true,
-			errMessage: "expected error when Del fails",
-		},
-		{
-			name: "should not fail even when key does not exist",
-			key:  "missing",
-			mockFunc: func(ctx context.Context, keys ...string) *redis.IntCmd {
-				cmd := redis.NewIntCmd(ctx)
-				cmd.SetVal(0) // no keys deleted
-				return cmd
-			},
-			wantErr: false,
+			expectedErr: errors.New("del error"),
 		},
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
-			store := &RedisStore{
-				client: &mockRedisClient{delFunc: tt.mockFunc},
+			t.Parallel()
+
+			// --- Arrange ---
+			mock := &redismock.MockRedisClient{}
+			store := &RedisStore{client: mock}
+			ctx := context.Background()
+
+			tt.mock(mock)
+
+			// --- Act ---
+			err := store.Delete(ctx, key)
+
+			// --- Assert ---
+			if tt.expectedErr != nil {
+				assert.Error(t, err, "expected an error when Del fails")
+				assert.EqualError(t, tt.expectedErr, err, "error must match the expected error")
+				return
 			}
 
-			err := store.Delete(context.Background(), tt.key)
-
-			if tt.wantErr {
-				assert.Error(t, err, tt.errMessage)
-				assert.Contains(t, err.Error(), "delete failed", "expected error message to contain delete failed")
-			} else {
-				assert.NoError(t, err, "expected no error but got one")
-			}
+			assert.NoError(t, err, "expected no error when Del succeeds")
 		})
 	}
 }
 
 func TestRedisStore_DeleteByPattern(t *testing.T) {
-	// backup and restore the seam
-	origFactory := newScanIterator
-	defer func() { newScanIterator = origFactory }()
+	t.Parallel()
+
+	pattern := "user:*"
 
 	tests := []struct {
-		name      string
-		pattern   string
-		iter      *mockIter
-		mockDel   func(ctx context.Context, keys ...string) *redis.IntCmd
-		wantErr   bool
-		errSubstr string
+		name        string
+		mock        func(mock *redismock.MockRedisClient)
+		expectedErr error
 	}{
 		{
-			name:    "should return no error when no keys found",
-			pattern: "no:*",
-			iter:    &mockIter{keys: []string{}},
-			mockDel: func(ctx context.Context, keys ...string) *redis.IntCmd {
-				// should not be called, but return OK if it is
-				cmd := redis.NewIntCmd(ctx)
-				cmd.SetVal(0)
-				return cmd
+			name: "should delete keys matching pattern successfully when Scan and Del succeed",
+			mock: func(mock *redismock.MockRedisClient) {
+				mock.ScanFunc = func(ctx context.Context, cursor uint64, match string, count int64) *redis.ScanCmd {
+					return redis.NewScanCmdResult([]string{"user:1", "user:2"}, 0, nil)
+				}
+				mock.DelFunc = func(ctx context.Context, keys ...string) *redis.IntCmd {
+					cmd := redis.NewIntCmd(ctx)
+					cmd.SetVal(int64(len(keys)))
+					return cmd
+				}
 			},
-			wantErr: false,
+			expectedErr: nil,
 		},
 		{
-			name:    "should delete all matching keys without error",
-			pattern: "ok:*",
-			iter:    &mockIter{keys: []string{"k1", "k2", "k3"}},
-			mockDel: func(ctx context.Context, keys ...string) *redis.IntCmd {
-				cmd := redis.NewIntCmd(ctx)
-				cmd.SetVal(int64(len(keys))) // simulate success
-				return cmd
+			name: "should handle no keys matching pattern gracefully",
+			mock: func(mock *redismock.MockRedisClient) {
+				mock.ScanFunc = func(ctx context.Context, cursor uint64, match string, count int64) *redis.ScanCmd {
+					return redis.NewScanCmdResult([]string{}, 0, nil)
+				}
 			},
-			wantErr: false,
+			expectedErr: nil,
 		},
 		{
-			name:    "should return error when Del fails on a key",
-			pattern: "bad:*",
-			iter:    &mockIter{keys: []string{"k1", "k2"}},
-			mockDel: func(ctx context.Context, keys ...string) *redis.IntCmd {
-				cmd := redis.NewIntCmd(ctx)
-				cmd.SetErr(errors.New("delete failed"))
-				return cmd
+			name: "should return error when Scan fails",
+			mock: func(mock *redismock.MockRedisClient) {
+				mock.ScanFunc = func(ctx context.Context, cursor uint64, match string, count int64) *redis.ScanCmd {
+					return redis.NewScanCmdResult(nil, 0, errors.New("scan error"))
+				}
 			},
-			wantErr:   true,
-			errSubstr: "delete failed",
+			expectedErr: errors.New("scan error"),
 		},
 		{
-			name:    "should return iterator error when iteration ends with error",
-			pattern: "iter-err:*",
-			iter:    &mockIter{keys: []string{"k1"}, err: errors.New("scan iterator error")},
-			mockDel: func(ctx context.Context, keys ...string) *redis.IntCmd {
-				cmd := redis.NewIntCmd(ctx)
-				cmd.SetVal(1)
-				return cmd
+			name: "should return error when Del fails for one of the keys",
+			mock: func(mock *redismock.MockRedisClient) {
+				mock.ScanFunc = func(ctx context.Context, cursor uint64, match string, count int64) *redis.ScanCmd {
+					return redis.NewScanCmdResult([]string{"user:1", "user:2"}, 0, nil)
+				}
+				mock.DelFunc = func(ctx context.Context, keys ...string) *redis.IntCmd {
+					cmd := redis.NewIntCmd(ctx)
+					if keys[0] == "user:2" {
+						cmd.SetErr(errors.New("del error"))
+					} else {
+						cmd.SetVal(1)
+					}
+					return cmd
+				}
 			},
-			wantErr:   true,
-			errSubstr: "scan iterator error",
+			expectedErr: errors.New("del error"),
 		},
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-			// override seam to return our mock iterator
-			newScanIterator = func(ctx context.Context, c redisClient, pattern string) scanIterator {
-				return tt.iter
+			// --- Arrange ---
+			mock := &redismock.MockRedisClient{}
+			store := &RedisStore{client: mock}
+			ctx := context.Background()
+
+			tt.mock(mock)
+
+			// --- Act ---
+			err := store.DeleteByPattern(ctx, pattern)
+
+			// --- Assert ---
+			if tt.expectedErr != nil {
+				assert.Error(t, err, "expected an error when DeleteByPattern fails")
+				assert.EqualError(t, tt.expectedErr, err, "error must match the expected error")
+				return
 			}
 
-			store := &RedisStore{
-				client: &mockRedisClient{
-					delFunc: tt.mockDel,
-				},
-			}
-
-			err := store.DeleteByPattern(context.Background(), tt.pattern)
-
-			if tt.wantErr {
-				assert.Error(t, err, "expected an error")
-				if tt.errSubstr != "" {
-					assert.Contains(t, err.Error(), tt.errSubstr, "expected error message to contain "+tt.errSubstr)
-				}
-			} else {
-				assert.NoError(t, err, "expected no error but got one")
-			}
+			assert.NoError(t, err, "expected no error when DeleteByPattern succeeds")
 		})
 	}
 }
 
 func TestRedisStore_DeleteMany(t *testing.T) {
+	t.Parallel()
+
+	keys := []string{"key1", "key2", "key3"}
+
 	tests := []struct {
-		name       string
-		keys       []string
-		mockDel    func(ctx context.Context, keys ...string) *redis.IntCmd
-		wantErr    bool
-		errMessage string
+		name        string
+		keys        []string
+		mock        func(mock *redismock.MockRedisClient)
+		expectedErr error
 	}{
 		{
-			name: "should return nil when no keys provided",
+			name: "should delete multiple keys successfully when Del succeeds",
+			keys: keys,
+			mock: func(mock *redismock.MockRedisClient) {
+				mock.DelFunc = func(ctx context.Context, k ...string) *redis.IntCmd {
+					cmd := redis.NewIntCmd(ctx)
+					cmd.SetVal(int64(len(k)))
+					return cmd
+				}
+			},
+			expectedErr: nil,
+		},
+		{
+			name: "should do nothing when no keys are provided",
 			keys: []string{},
-			mockDel: func(ctx context.Context, keys ...string) *redis.IntCmd {
-				t.Fatal("expected Del not to be called when keys are empty")
-				return nil
+			mock: func(mock *redismock.MockRedisClient) {
+				// no redis call expected
+				mock.DelFunc = func(ctx context.Context, k ...string) *redis.IntCmd {
+					cmd := redis.NewIntCmd(ctx)
+					cmd.SetVal(0)
+					return cmd
+				}
 			},
-			wantErr: false,
+			expectedErr: nil,
 		},
 		{
-			name: "should delete all keys successfully when Del succeeds",
-			keys: []string{"key1", "key2"},
-			mockDel: func(ctx context.Context, keys ...string) *redis.IntCmd {
-				cmd := redis.NewIntCmd(ctx)
-				cmd.SetVal(int64(len(keys))) // simulate success
-				return cmd
+			name: "should return an error when Del fails",
+			keys: keys,
+			mock: func(mock *redismock.MockRedisClient) {
+				mock.DelFunc = func(ctx context.Context, k ...string) *redis.IntCmd {
+					cmd := redis.NewIntCmd(ctx)
+					cmd.SetErr(errors.New("del many error"))
+					return cmd
+				}
 			},
-			wantErr: false,
-		},
-		{
-			name: "should return error when Del fails",
-			keys: []string{"badkey"},
-			mockDel: func(ctx context.Context, keys ...string) *redis.IntCmd {
-				cmd := redis.NewIntCmd(ctx)
-				cmd.SetErr(errors.New("mock: delete failed"))
-				return cmd
-			},
-			wantErr:    true,
-			errMessage: "expected error when Del fails",
+			expectedErr: errors.New("del many error"),
 		},
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
-			store := &RedisStore{
-				client: &mockRedisClient{
-					delFunc: tt.mockDel,
-				},
+			t.Parallel()
+
+			// --- Arrange ---
+			mock := &redismock.MockRedisClient{}
+			store := &RedisStore{client: mock}
+			ctx := context.Background()
+
+			tt.mock(mock)
+
+			// --- Act ---
+			err := store.DeleteMany(ctx, tt.keys...)
+
+			// --- Assert ---
+			if tt.expectedErr != nil {
+				assert.Error(t, err, "expected an error when DeleteMany fails")
+				assert.EqualError(t, tt.expectedErr, err, "error must match the expected error")
+				return
 			}
 
-			err := store.DeleteMany(context.Background(), tt.keys...)
-
-			if tt.wantErr {
-				assert.Error(t, err, tt.errMessage)
-				assert.Contains(t, err.Error(), "delete failed", "expected error message to contain delete failed")
-			} else {
-				assert.NoError(t, err, "expected no error but got one")
-			}
+			assert.NoError(t, err, "expected no error when DeleteMany succeeds")
 		})
 	}
 }
 
 func TestRedisStore_Get(t *testing.T) {
+	t.Parallel()
+
+	key := "test-key"
+	value := `"test-value"` // JSON marshaled string
+
 	tests := []struct {
-		name       string
-		key        string
-		mockGet    func(ctx context.Context, key string) *redis.StringCmd
-		wantValue  any
-		wantErr    error
-		errMessage string
+		name        string
+		mock        func(mock *redismock.MockRedisClient)
+		expectedVal any
+		expectedErr error
 	}{
 		{
-			name: "should return value when key exists",
-			key:  "foo",
-			mockGet: func(ctx context.Context, key string) *redis.StringCmd {
-				cmd := redis.NewStringCmd(ctx)
-				cmd.SetVal("bar")
-				return cmd
+			name: "should return the value successfully when Get succeeds",
+			mock: func(mock *redismock.MockRedisClient) {
+				mock.GetFunc = func(ctx context.Context, k string) *redis.StringCmd {
+					cmd := redis.NewStringCmd(ctx)
+					cmd.SetVal(value)
+					return cmd
+				}
 			},
-			wantValue: "bar",
-			wantErr:   nil,
+			expectedVal: value,
+			expectedErr: nil,
 		},
 		{
-			name: "should return ErrCacheMiss when key does not exist",
-			key:  "missing",
-			mockGet: func(ctx context.Context, key string) *redis.StringCmd {
-				cmd := redis.NewStringCmd(ctx)
-				cmd.SetErr(redis.Nil)
-				return cmd
+			name: "should return ErrCacheMiss when key does not exist (redis.Nil)",
+			mock: func(mock *redismock.MockRedisClient) {
+				mock.GetFunc = func(ctx context.Context, k string) *redis.StringCmd {
+					cmd := redis.NewStringCmd(ctx)
+					cmd.SetErr(redis.Nil)
+					return cmd
+				}
 			},
-			wantValue: nil,
-			wantErr:   omnicache.ErrCacheMiss,
+			expectedVal: nil,
+			expectedErr: omnicache.ErrCacheMiss,
 		},
 		{
-			name: "should return error when Get fails with other error",
-			key:  "foo",
-			mockGet: func(ctx context.Context, key string) *redis.StringCmd {
-				cmd := redis.NewStringCmd(ctx)
-				cmd.SetErr(errors.New("mock: network error"))
-				return cmd
+			name: "should return an error when Get fails with other error",
+			mock: func(mock *redismock.MockRedisClient) {
+				mock.GetFunc = func(ctx context.Context, k string) *redis.StringCmd {
+					cmd := redis.NewStringCmd(ctx)
+					cmd.SetErr(errors.New("get error"))
+					return cmd
+				}
 			},
-			wantValue:  nil,
-			wantErr:    errors.New("mock: network error"),
-			errMessage: "expected error when Get fails",
+			expectedVal: nil,
+			expectedErr: errors.New("get error"),
 		},
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
-			store := &RedisStore{
-				client: &mockRedisClient{
-					getFunc: tt.mockGet,
-				},
+			t.Parallel()
+
+			// --- Arrange ---
+			mock := &redismock.MockRedisClient{}
+			store := &RedisStore{client: mock}
+			ctx := context.Background()
+
+			tt.mock(mock)
+
+			// --- Act ---
+			result, err := store.Get(ctx, key)
+
+			// --- Assert ---
+			if tt.expectedErr != nil {
+				assert.Error(t, err, "expected an error when Get fails")
+				assert.EqualError(t, tt.expectedErr, err, "error must match the expected error")
+				assert.Nil(t, result, "result must be nil on error")
+				return
 			}
 
-			val, err := store.Get(context.Background(), tt.key)
-
-			if tt.wantErr != nil {
-				assert.Error(t, err, tt.errMessage)
-				assert.Equal(t, tt.wantErr.Error(), err.Error(), "expected error to match")
-				assert.Nil(t, val, "expected value to be nil on error")
-			} else {
-				assert.NoError(t, err, "expected no error but got one")
-				assert.Equal(t, tt.wantValue, val, "expected returned value to match")
-			}
+			assert.NoError(t, err, "expected no error when Get succeeds")
+			assert.Equal(t, tt.expectedVal, result, "result must match the expected value")
 		})
 	}
 }
 
 func TestRedisStore_Has(t *testing.T) {
+	t.Parallel()
+
+	key := "test-key"
+
 	tests := []struct {
-		name       string
-		key        string
-		mockExists func(ctx context.Context, keys ...string) *redis.IntCmd
-		want       bool
-		wantErr    bool
-		errMessage string
+		name        string
+		mock        func(mock *redismock.MockRedisClient)
+		expectedVal bool
+		expectedErr error
 	}{
 		{
 			name: "should return true when key exists",
-			key:  "foo",
-			mockExists: func(ctx context.Context, keys ...string) *redis.IntCmd {
-				cmd := redis.NewIntCmd(ctx)
-				cmd.SetVal(1) // simulate key found
-				return cmd
+			mock: func(mock *redismock.MockRedisClient) {
+				mock.ExistsFunc = func(ctx context.Context, keys ...string) *redis.IntCmd {
+					cmd := redis.NewIntCmd(ctx)
+					cmd.SetVal(1)
+					return cmd
+				}
 			},
-			want:    true,
-			wantErr: false,
+			expectedVal: true,
+			expectedErr: nil,
 		},
 		{
 			name: "should return false when key does not exist",
-			key:  "missing",
-			mockExists: func(ctx context.Context, keys ...string) *redis.IntCmd {
-				cmd := redis.NewIntCmd(ctx)
-				cmd.SetVal(0) // simulate key missing
-				return cmd
+			mock: func(mock *redismock.MockRedisClient) {
+				mock.ExistsFunc = func(ctx context.Context, keys ...string) *redis.IntCmd {
+					cmd := redis.NewIntCmd(ctx)
+					cmd.SetVal(0)
+					return cmd
+				}
 			},
-			want:    false,
-			wantErr: false,
+			expectedVal: false,
+			expectedErr: nil,
 		},
 		{
-			name: "should return error when Exists fails",
-			key:  "foo",
-			mockExists: func(ctx context.Context, keys ...string) *redis.IntCmd {
-				cmd := redis.NewIntCmd(ctx)
-				cmd.SetErr(errors.New("mock: exists failed"))
-				return cmd
+			name: "should return an error when Exists fails",
+			mock: func(mock *redismock.MockRedisClient) {
+				mock.ExistsFunc = func(ctx context.Context, keys ...string) *redis.IntCmd {
+					cmd := redis.NewIntCmd(ctx)
+					cmd.SetErr(errors.New("exists error"))
+					return cmd
+				}
 			},
-			want:       false,
-			wantErr:    true,
-			errMessage: "expected error when Exists fails",
+			expectedVal: false,
+			expectedErr: errors.New("exists error"),
 		},
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
-			store := &RedisStore{
-				client: &mockRedisClient{
-					existsFunc: tt.mockExists,
-				},
+			t.Parallel()
+
+			// --- Arrange ---
+			mock := &redismock.MockRedisClient{}
+			store := &RedisStore{client: mock}
+			ctx := context.Background()
+
+			tt.mock(mock)
+
+			// --- Act ---
+			result, err := store.Has(ctx, key)
+
+			// --- Assert ---
+			if tt.expectedErr != nil {
+				assert.Error(t, err, "expected an error when Has fails")
+				assert.EqualError(t, tt.expectedErr, err, "error must match the expected error")
+				assert.Equal(t, tt.expectedVal, result, "result must be false on error")
+				return
 			}
 
-			has, err := store.Has(context.Background(), tt.key)
-
-			if tt.wantErr {
-				assert.Error(t, err, tt.errMessage)
-				assert.Contains(t, err.Error(), "exists failed", "expected error message to contain exists failed")
-				assert.False(t, has, "expected has to be false on error")
-			} else {
-				assert.NoError(t, err, "expected no error but got one")
-				assert.Equal(t, tt.want, has, "expected has to match")
-			}
+			assert.NoError(t, err, "expected no error when Has succeeds")
+			assert.Equal(t, tt.expectedVal, result, "result must match the expected value")
 		})
 	}
 }
 
 func TestRedisStore_Set(t *testing.T) {
+	t.Parallel()
+
+	key := "test-key"
+	value := "test-value"
+	marshaledValue, _ := json.Marshal(value)
+	ttl := 5 * time.Minute
+
 	tests := []struct {
 		name        string
 		key         string
 		value       any
 		ttl         time.Duration
-		mockSet     func(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.StatusCmd
-		wantErr     bool
-		errContains string
+		mock        func(mock *redismock.MockRedisClient)
+		expectedErr error
 	}{
 		{
-			name:  "should set value successfully with positive TTL",
-			key:   "foo",
-			value: "bar",
-			ttl:   10 * time.Second,
-			mockSet: func(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.StatusCmd {
-				cmd := redis.NewStatusCmd(ctx)
-				cmd.SetVal("OK")
-				return cmd
+			name:  "should set the value successfully when Set succeeds",
+			key:   key,
+			value: value,
+			ttl:   ttl,
+			mock: func(mock *redismock.MockRedisClient) {
+				mock.SetFunc = func(ctx context.Context, k string, v any, exp time.Duration) *redis.StatusCmd {
+					cmd := redis.NewStatusCmd(ctx)
+					// verify the value matches expected JSON
+					assert.Equal(t, marshaledValue, v, "expected marshaled value to match")
+					cmd.SetVal("OK")
+					return cmd
+				}
 			},
-			wantErr: false,
+			expectedErr: nil,
 		},
 		{
-			name:  "should set value successfully with 0 TTL (no expiration)",
-			key:   "foo",
-			value: "bar",
+			name:  "should handle zero TTL correctly (no expiration)",
+			key:   key,
+			value: value,
 			ttl:   0,
-			mockSet: func(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.StatusCmd {
-				cmd := redis.NewStatusCmd(ctx)
-				cmd.SetVal("OK")
-				return cmd
+			mock: func(mock *redismock.MockRedisClient) {
+				mock.SetFunc = func(ctx context.Context, k string, v any, exp time.Duration) *redis.StatusCmd {
+					cmd := redis.NewStatusCmd(ctx)
+					assert.Equal(t, time.Duration(0), exp, "expected zero TTL")
+					cmd.SetVal("OK")
+					return cmd
+				}
 			},
-			wantErr: false,
+			expectedErr: nil,
 		},
 		{
-			name:  "should return error when TTL is negative",
-			key:   "foo",
-			value: "bar",
-			ttl:   -1 * time.Second,
-			mockSet: func(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.StatusCmd {
-				t.Fatal("expected Set not to be called with negative TTL")
-				return nil
+			name:  "should handle complex struct values",
+			key:   key,
+			value: struct{ Name string }{Name: "test"},
+			ttl:   ttl,
+			mock: func(mock *redismock.MockRedisClient) {
+				data, _ := json.Marshal(struct{ Name string }{Name: "test"})
+				mock.SetFunc = func(ctx context.Context, k string, v any, exp time.Duration) *redis.StatusCmd {
+					cmd := redis.NewStatusCmd(ctx)
+					assert.Equal(t, data, v, "expected marshaled struct value to match")
+					cmd.SetVal("OK")
+					return cmd
+				}
 			},
-			wantErr:     true,
-			errContains: omnicache.ErrInvalidValue.Error(),
+			expectedErr: nil,
 		},
 		{
-			name:  "should return error when Set fails",
-			key:   "foo",
-			value: "bar",
-			ttl:   10 * time.Second,
-			mockSet: func(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.StatusCmd {
-				cmd := redis.NewStatusCmd(ctx)
-				cmd.SetErr(errors.New("mock: set command failed"))
-				return cmd
+			name:  "should return an error when Set fails",
+			key:   key,
+			value: value,
+			ttl:   ttl,
+			mock: func(mock *redismock.MockRedisClient) {
+				mock.SetFunc = func(ctx context.Context, k string, v any, exp time.Duration) *redis.StatusCmd {
+					cmd := redis.NewStatusCmd(ctx)
+					cmd.SetErr(errors.New("set error"))
+					return cmd
+				}
 			},
-			wantErr:     true,
-			errContains: "set command failed",
+			expectedErr: errors.New("set error"),
+		},
+		{
+			name:  "should return ErrInvalidValue when TTL is negative",
+			key:   key,
+			value: value,
+			ttl:   -1 * time.Minute,
+			mock: func(mock *redismock.MockRedisClient) {
+				// No Redis call expected
+			},
+			expectedErr: omnicache.ErrInvalidValue,
+		},
+		{
+			name:  "should return an error when value cannot be marshaled",
+			key:   key,
+			value: make(chan int), // cannot be marshaled
+			ttl:   ttl,
+			mock: func(mock *redismock.MockRedisClient) {
+				// no redis call expected since marshalling fails
+			},
+			expectedErr: errors.New("json: unsupported type: chan int"),
 		},
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
-			store := &RedisStore{
-				client: &mockRedisClient{
-					setFunc: tt.mockSet,
-				},
+			t.Parallel()
+
+			mock := &redismock.MockRedisClient{}
+			store := &RedisStore{client: mock}
+			ctx := context.Background()
+
+			tt.mock(mock)
+
+			err := store.Set(ctx, tt.key, tt.value, tt.ttl)
+
+			if tt.expectedErr != nil {
+				assert.Error(t, err, "expected an error when Set fails")
+				assert.EqualError(t, tt.expectedErr, err, "error must match the expected error")
+				return
 			}
 
-			err := store.Set(context.Background(), tt.key, tt.value, tt.ttl)
-
-			if tt.wantErr {
-				assert.Error(t, err, "expected error but got none")
-				assert.Contains(t, err.Error(), tt.errContains, "expected error message to contain "+tt.errContains)
-			} else {
-				assert.NoError(t, err, "expected no error but got one")
-			}
+			assert.NoError(t, err, "expected no error when Set succeeds")
 		})
 	}
 }

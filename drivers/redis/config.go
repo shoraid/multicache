@@ -1,9 +1,6 @@
-package redis
+package redisstore
 
 import (
-	"crypto/tls"
-	"crypto/x509"
-	"io"
 	"time"
 )
 
@@ -103,59 +100,4 @@ type RedisConfig struct {
 	//
 	// default: 0 (no limit)
 	ConnMaxLifetime time.Duration
-
-	// UseTLS enables TLS negotiation. When true, TLSConfig will be applied if provided.
-	UseTLS bool
-
-	// TLSConfig provides detailed TLS configuration if UseTLS is true.
-	// If nil, a default TLS configuration with system root CAs will be used.
-	TLSConfig *TLSConfig
-}
-
-// TLSConfig is a simplified version of tls.Config for typical client use cases.
-// It preserves the order and comments of crypto/tls.Config but keeps only
-// the most commonly used fields for Redis and other client connections.
-type TLSConfig struct {
-	// Rand provides the source of entropy for nonces and RSA blinding.
-	// If Rand is nil, TLS uses the cryptographic random reader in package crypto/rand.
-	Rand io.Reader
-
-	// Time returns the current time as the number of seconds since the epoch.
-	// If Time is nil, TLS uses time.Now.
-	Time func() time.Time
-
-	// Certificates contains one or more certificate chains to present to the
-	// server (for mutual TLS authentication).
-	Certificates []tls.Certificate
-
-	// CAFile is an optional path to a custom CA certificate file (PEM).
-	// If provided, it will be loaded and appended to RootCAs.
-	CAFile string
-
-	// RootCAs defines the set of root certificate authorities that clients use
-	// when verifying server certificates. If RootCAs is nil, system CAs are used.
-	RootCAs *x509.CertPool
-
-	// ServerName is used to verify the hostname on the server certificate
-	// unless InsecureSkipVerify is true.
-	ServerName string
-
-	// InsecureSkipVerify controls whether the client verifies the server's
-	// certificate chain and hostname. This should only be used for local
-	// development or in combination with a custom verification callback.
-	InsecureSkipVerify bool
-
-	// MinVersion contains the minimum TLS version that is acceptable.
-	//
-	// default: TLS 1.2
-	MinVersion uint16
-
-	// MaxVersion contains the maximum TLS version that is acceptable.
-	//
-	// default: TLS 1.3
-	MaxVersion uint16
-
-	// CertFile and KeyFile are optional paths for client certificate (mutual TLS).
-	CertFile string
-	KeyFile  string
 }
